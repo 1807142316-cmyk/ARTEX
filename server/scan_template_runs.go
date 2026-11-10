@@ -30,6 +30,12 @@ func (s *Server) startScanTemplateRun(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	var taskID *int64
+	// Registering the running context is serialized with task lifecycle commits,
+	// so a pause cannot land between validation and cancellation registration.
+	if input.TaskID != "" {
+		s.m.taskStateMu.Lock()
+		defer s.m.taskStateMu.Unlock()
+	}
 	if input.TaskID != "" {
 		id, err := strconv.ParseInt(input.TaskID, 10, 64)
 		if err != nil || id < 1 {
@@ -43,6 +49,10 @@ func (s *Server) startScanTemplateRun(w http.ResponseWriter, r *http.Request) {
 		}
 		if task == nil {
 			writeErr(w, 404, "task not found")
+			return
+		}
+		if task.Paused || isTerminalStatus(task.Status) {
+			writeErr(w, 409, "task is paused or terminal")
 			return
 		}
 		taskID = &id
@@ -82,11 +92,28 @@ func (s *Server) startScanTemplateRun(w http.ResponseWriter, r *http.Request) {
 		writeErr(w, 500, err.Error())
 		return
 	}
+	ctx, cancel := context.WithTimeout(s.ctx, 2*time.Minute)
+	if taskID != nil {
+		s.templateRunsMu.Lock()
+		if s.templateTaskRuns[input.TaskID] == nil {
+			s.templateTaskRuns[input.TaskID] = map[int64]context.CancelFunc{}
+		}
+		s.templateTaskRuns[input.TaskID][run.ID] = cancel
+		s.templateRunsMu.Unlock()
+	}
 	go func() {
 		defer func() { <-s.templateRunSlots }()
-		ctx, cancel := context.WithTimeout(s.ctx, 2*time.Minute)
 		defer cancel()
+		defer s.unregisterTaskTemplateRun(input.TaskID, run.ID)
 		matches, runErr := scantemplate.Run(ctx, run.TemplateContent, run.Target)
+		if input.TaskID != "" {
+			s.m.taskStateMu.Lock()
+			defer s.m.taskStateMu.Unlock()
+		}
+		if ctx.Err() != nil {
+			runErr = ctx.Err()
+			matches = nil
+		}
 		persist, cancelPersist := context.WithTimeout(context.Background(), 10*time.Second)
 		defer cancelPersist()
 		if err := s.m.pg.FinishScanTemplateRun(persist, run, matches, runErr); err != nil {
@@ -94,6 +121,23 @@ func (s *Server) startScanTemplateRun(w http.ResponseWriter, r *http.Request) {
 		}
 	}()
 	writeJSON(w, 202, run)
+}
+
+func (s *Server) cancelTaskTemplateRuns(taskID string) {
+	s.templateRunsMu.Lock()
+	defer s.templateRunsMu.Unlock()
+	for _, cancel := range s.templateTaskRuns[taskID] {
+		cancel()
+	}
+}
+
+func (s *Server) unregisterTaskTemplateRun(taskID string, id int64) {
+	s.templateRunsMu.Lock()
+	defer s.templateRunsMu.Unlock()
+	delete(s.templateTaskRuns[taskID], id)
+	if len(s.templateTaskRuns[taskID]) == 0 {
+		delete(s.templateTaskRuns, taskID)
+	}
 }
 
 func (s *Server) getScanTemplateRun(w http.ResponseWriter, r *http.Request) {

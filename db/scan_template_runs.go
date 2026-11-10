@@ -113,6 +113,21 @@ func (d *DB) FinishScanTemplateRun(ctx context.Context, run ScanTemplateRun, mat
 	if status != "running" {
 		return nil
 	}
+	// Use the current FK value after task deletion instead of a stale run copy.
+	if err = tx.QueryRowContext(ctx, `SELECT task_id FROM scan_template_runs WHERE id=$1`, run.ID).Scan(&run.TaskID); err != nil {
+		return err
+	}
+	if run.TaskID != nil {
+		var paused bool
+		var taskStatus string
+		if err = tx.QueryRowContext(ctx, `SELECT paused,status FROM tasks WHERE id=$1 FOR SHARE`, *run.TaskID).Scan(&paused, &taskStatus); err != nil {
+			return err
+		}
+		if paused || IsTerminal(taskStatus) {
+			runErr = context.Canceled
+			matches = nil
+		}
+	}
 	status = "completed"
 	message := ""
 	if runErr != nil {

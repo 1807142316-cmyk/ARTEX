@@ -44,12 +44,20 @@ func CheckEngine(ctx context.Context) EngineStatus {
 	status := EngineStatus{Version: EngineVersion, Capabilities: []string{"http-static-get", "status-matchers", "request-response-evidence"}}
 	ctx, cancel := context.WithTimeout(ctx, 5*time.Second)
 	defer cancel()
-	out, err := exec.CommandContext(ctx, EnginePath(), "-version", "-nc").CombinedOutput()
+	var out limitedOutput
+	cmd := exec.CommandContext(ctx, EnginePath(), "-version", "-nc")
+	cmd.Stdout = &out
+	cmd.Stderr = &out
+	err := cmd.Run()
 	if err != nil {
 		status.Error = "Nuclei unavailable: " + err.Error()
 		return status
 	}
-	version := regexp.MustCompile(`Nuclei Engine Version: v([0-9.]+)`).FindSubmatch(out)
+	if out.exceeded {
+		status.Error = "Nuclei version output exceeded limit"
+		return status
+	}
+	version := regexp.MustCompile(`Nuclei Engine Version: v([0-9.]+)`).FindSubmatch(out.buffer.Bytes())
 	if len(version) != 2 || string(version[1]) != EngineVersion {
 		status.Error = "Nuclei version must be " + EngineVersion
 		return status
@@ -70,19 +78,19 @@ func ValidateTarget(target string) (string, error) {
 }
 
 type limitedOutput struct {
-	bytes.Buffer
+	buffer   bytes.Buffer
 	exceeded bool
 }
 
 func (b *limitedOutput) Write(p []byte) (int, error) {
 	const limit = 12 << 20
 	n := len(p)
-	remaining := limit - b.Len()
+	remaining := limit - b.buffer.Len()
 	if remaining < len(p) {
 		p = p[:remaining]
 		b.exceeded = true
 	}
-	_, _ = b.Buffer.Write(p)
+	_, _ = b.buffer.Write(p)
 	return n, nil
 }
 
@@ -142,15 +150,27 @@ func RunWithProxy(ctx context.Context, content, target, proxyURL, caFile string)
 		if ctx.Err() != nil {
 			return nil, ctx.Err()
 		}
-		return nil, fmt.Errorf("Nuclei execution failed: %w: %.2000s", err, stderr.String())
+		return nil, fmt.Errorf("Nuclei execution failed: %w: %.2000s", err, stderr.buffer.String())
 	}
 	if out.exceeded || stderr.exceeded {
 		return nil, errors.New("Nuclei output exceeded limit")
 	}
-	if log, err := os.ReadFile(errorLog); err == nil && len(bytes.TrimSpace(log)) != 0 {
-		return nil, fmt.Errorf("Nuclei request failed: %.2000s", log)
+	if file, err := os.Open(errorLog); err == nil {
+		log, readErr := io.ReadAll(io.LimitReader(file, (12<<20)+1))
+		file.Close()
+		if readErr != nil {
+			return nil, readErr
+		}
+		if len(log) > 12<<20 {
+			return nil, errors.New("Nuclei error log exceeded limit")
+		}
+		if len(bytes.TrimSpace(log)) != 0 {
+			return nil, fmt.Errorf("Nuclei request failed: %.2000s", log)
+		}
+	} else if !os.IsNotExist(err) {
+		return nil, err
 	}
-	decoder := json.NewDecoder(bytes.NewReader(out.Bytes()))
+	decoder := json.NewDecoder(bytes.NewReader(out.buffer.Bytes()))
 	results := []Match{}
 	for {
 		var event struct {
