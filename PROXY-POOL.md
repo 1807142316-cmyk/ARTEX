@@ -47,3 +47,4 @@ end-to-end deployment acceptance. Current actual-PostgreSQL HTTP tests cover
 parallel exit separation, stable retries, proxy failure/default pause, explicit
 failover/direct fallback with recorded transitions, recording on/off parity,
 SOCKS5 forwarding, authentication and credential redaction.
+

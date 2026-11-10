@@ -18,21 +18,22 @@ import (
 // (→planner) or direct high-priority intents (→frontier). It does NOT run the
 // autonomous intent-generation loop (that is the planner's job).
 type MainAgent struct {
-	findingRecorder FindingRecorder
-	prov            llm.Provider
-	model           string
-	tx              *transcript.Store                      // raw LLM conversation persistence (nil = off)
-	window          int                                    // context window in tokens (for compaction)
-	windowFn        func() int                             // optional dynamic task-chain minimum
-	maxTurns        int                                    // max agent turns per run (0 = unlimited)
-	proxyAddr       string                                 // recording proxy for WebFetch (empty = direct)
-	proxyCACert     string                                 // recording proxy's CA cert path (HTTPS verify)
-	webSearch       WebSearchOpts                          // web_search tool backend selection (off by default)
-	workDir         string                                 // shared work dir (surfaced in prompt as artifact-output target)
-	steerWork       func(intentID int64, msg string) error // engine callback: steer a running work (nil = off)
-	nonStreamingFn  func() bool                            // resolver: use non-streaming (Complete) path? (nil = streaming)
-	noaEnabledFn    func() bool                            // resolver: use experimental noa compaction? (nil = off)
-	maxTokensFn     func() int                             // resolver: per-reply output cap (nil/0 = send no cap)
+	findingRecorder  FindingRecorder
+	prov             llm.Provider
+	model            string
+	tx               *transcript.Store // raw LLM conversation persistence (nil = off)
+	window           int               // context window in tokens (for compaction)
+	windowFn         func() int        // optional dynamic task-chain minimum
+	maxTurns         int               // max agent turns per run (0 = unlimited)
+	proxyAddr        string            // recording proxy for WebFetch (empty = direct)
+	clearProxyBypass bool
+	proxyCACert      string                                 // recording proxy's CA cert path (HTTPS verify)
+	webSearch        WebSearchOpts                          // web_search tool backend selection (off by default)
+	workDir          string                                 // shared work dir (surfaced in prompt as artifact-output target)
+	steerWork        func(intentID int64, msg string) error // engine callback: steer a running work (nil = off)
+	nonStreamingFn   func() bool                            // resolver: use non-streaming (Complete) path? (nil = streaming)
+	noaEnabledFn     func() bool                            // resolver: use experimental noa compaction? (nil = off)
+	maxTokensFn      func() int                             // resolver: per-reply output cap (nil/0 = send no cap)
 }
 
 // SetNoaEnabled wires a resolver deciding whether runs use the experimental noa
@@ -72,7 +73,8 @@ func (m *MainAgent) compactionWindow() int {
 
 // SetProxy points the main agent's WebFetch at the recording proxy plus the CA
 // cert it trusts to verify HTTPS through it (empty addr = direct).
-func (m *MainAgent) SetProxy(addr, caCert string) { m.proxyAddr, m.proxyCACert = addr, caCert }
+func (m *MainAgent) SetProxy(addr, caCert string)         { m.proxyAddr, m.proxyCACert = addr, caCert }
+func (m *MainAgent) SetProxyBypassDisabled(disabled bool) { m.clearProxyBypass = disabled }
 
 // SetWebSearch selects the web_search backend for the main agent (off by default).
 func (m *MainAgent) SetWebSearch(o WebSearchOpts) { m.webSearch = o }
@@ -153,8 +155,8 @@ func (m *MainAgent) Chat(ctx context.Context, taskID int64, mainSeg int, as *db.
 		DeepSeekSearchAPIKey:  m.webSearch.DeepSeekAPIKey,
 		DeepSeekSearchModel:   m.webSearch.DeepSeekModel,
 		WebSearchProxy:        m.webSearch.Proxy,
-		BashEnv:               proxyEnv(m.proxyAddr, m.proxyCACert), // Bash 子命令默认走代理+信任 CA
-		WorkingDir:            mainDir,                              // 本任务工作目录 <workDir>/tasks/<taskID>
+		BashEnv:               taskProxyEnv(m.proxyAddr, m.proxyCACert, m.clearProxyBypass), // Bash 子命令默认走代理+信任 CA
+		WorkingDir:            mainDir,                                                      // 本任务工作目录 <workDir>/tasks/<taskID>
 		ToolOutputDir:         cmdOutDir(mainDir),
 		MaxTurns:              m.maxTurns,                             // 0 = unlimited (configurable in agent management)
 		Compaction:            compactionConfig(m.compactionWindow()), // long chats stay within the window
