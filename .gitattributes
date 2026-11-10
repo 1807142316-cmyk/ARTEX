@@ -3,6 +3,10 @@
 skills/saved-header-review/** text eol=lf
 skills/evidence-inventory/** text eol=lf
 skills/cve-record-review/** text eol=lf
+skills/scope-asset-inventory/** text eol=lf
+skills/har-api-inventory/** text eol=lf
+skills/knowledge-package-check/** text eol=lf
+skills/report-evidence-index/** text eol=lf
 skills/content-manifest.json text eol=lf
 scripts/skill_manifest.py text eol=lf
 tests/skills/*.py text eol=lf

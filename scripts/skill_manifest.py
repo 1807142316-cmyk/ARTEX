@@ -9,6 +9,10 @@ PACKAGES = {
     "saved-header-review": ["https://cheatsheetseries.owasp.org/cheatsheets/HTTP_Headers_Cheat_Sheet.html"],
     "evidence-inventory": ["https://docs.python.org/3/library/hashlib.html"],
     "cve-record-review": ["https://github.com/CVEProject/cvelistV5", "https://github.com/CVEProject/cve-schema"],
+    "scope-asset-inventory": ["https://docs.python.org/3/library/ipaddress.html", "https://docs.python.org/3/library/urllib.parse.html"],
+    "har-api-inventory": ["https://www.softwareishard.com/blog/har-12-spec/"],
+    "knowledge-package-check": ["https://docs.python.org/3/library/hashlib.html"],
+    "report-evidence-index": ["https://docs.python.org/3/library/hashlib.html"],
 }
 
 
@@ -32,7 +36,7 @@ def main():
     if args.check:
         if json.loads(path.read_text(encoding="utf-8")) != expected:
             parser.exit(1, "skill manifest differs; run python3 scripts/skill_manifest.py\n")
-        print("3 authored skill packages match their manifest")
+        print(f"{len(expected['packages'])} authored skill packages match their manifest")
     else:
         path.write_text(json.dumps(expected, ensure_ascii=False, indent=2) + "\n", encoding="utf-8", newline="\n")
 

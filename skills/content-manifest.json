@@ -47,6 +47,72 @@
       ]
     },
     {
+      "name": "har-api-inventory",
+      "version": "artex-authored-1",
+      "license": "AGPL-3.0-only",
+      "authored_date": "2026-11-11",
+      "source_kind": "original-workflow-and-script",
+      "reference_urls": [
+        "https://www.softwareishard.com/blog/har-12-spec/"
+      ],
+      "files": [
+        {
+          "path": "SKILL.md",
+          "bytes": 2058,
+          "sha256": "c5561876c377f4355b9f1d67c24bd4ac6994e53b6929bc0fd421e4eefbc55a49"
+        },
+        {
+          "path": "scripts/run.py",
+          "bytes": 4871,
+          "sha256": "0ff10a0f657c0a5c492a94c4268d24650ae7063d235cc7774b356d373f4c6ad2"
+        }
+      ]
+    },
+    {
+      "name": "knowledge-package-check",
+      "version": "artex-authored-1",
+      "license": "AGPL-3.0-only",
+      "authored_date": "2026-11-11",
+      "source_kind": "original-workflow-and-script",
+      "reference_urls": [
+        "https://docs.python.org/3/library/hashlib.html"
+      ],
+      "files": [
+        {
+          "path": "SKILL.md",
+          "bytes": 2430,
+          "sha256": "fd5b2756ecec19243b44622c7ff20cefaa273e245e4bf0917fed507dd4533e67"
+        },
+        {
+          "path": "scripts/run.py",
+          "bytes": 5204,
+          "sha256": "06aaaf2defb67d7b991e66b1f7b4750542a40a5c2aba2a2c9f2014118cdeb80f"
+        }
+      ]
+    },
+    {
+      "name": "report-evidence-index",
+      "version": "artex-authored-1",
+      "license": "AGPL-3.0-only",
+      "authored_date": "2026-11-11",
+      "source_kind": "original-workflow-and-script",
+      "reference_urls": [
+        "https://docs.python.org/3/library/hashlib.html"
+      ],
+      "files": [
+        {
+          "path": "SKILL.md",
+          "bytes": 2720,
+          "sha256": "16667db5a19828652e5986559fc74659542f542a5bbccc19fbd45a80884a4524"
+        },
+        {
+          "path": "scripts/run.py",
+          "bytes": 5904,
+          "sha256": "2930dcdcd381f4a561fe48d2115e17cfbd58a79debf4e61cb75ed67a4b31e0a9"
+        }
+      ]
+    },
+    {
       "name": "saved-header-review",
       "version": "artex-authored-1",
       "license": "AGPL-3.0-only",
@@ -65,6 +131,29 @@
           "path": "scripts/run.py",
           "bytes": 2651,
           "sha256": "e04809409af802c2dfa8f90d28646102d5d372b9a59d1ad6ca50b9270627736c"
+        }
+      ]
+    },
+    {
+      "name": "scope-asset-inventory",
+      "version": "artex-authored-1",
+      "license": "AGPL-3.0-only",
+      "authored_date": "2026-11-11",
+      "source_kind": "original-workflow-and-script",
+      "reference_urls": [
+        "https://docs.python.org/3/library/ipaddress.html",
+        "https://docs.python.org/3/library/urllib.parse.html"
+      ],
+      "files": [
+        {
+          "path": "SKILL.md",
+          "bytes": 1935,
+          "sha256": "4e6f1d445dae849f2d767cc498cab9d97be36d391eb10f3ad968dee2c9103afb"
+        },
+        {
+          "path": "scripts/run.py",
+          "bytes": 4518,
+          "sha256": "a39114c526539965c97c88b79861b01e0597c48f4cf491710649fecb2cdf9dab"
         }
       ]
     }
