@@ -855,6 +855,8 @@ func (s *Server) Handler() http.Handler {
 	mux.HandleFunc("PUT /api/agents/{key}/visibility", s.pgSetAgentVisibility)
 	// 内置工具目录（描述/参数默认值可改、按 agent 绑定；key 与 handler 在代码层）
 	mux.HandleFunc("GET /api/tools", s.pgListTools)
+	mux.HandleFunc("GET /api/scan-templates", s.listScanTemplates)
+	mux.HandleFunc("POST /api/scan-templates", s.importScanTemplate)
 	mux.HandleFunc("PUT /api/tools/{key}", s.pgUpdateTool)
 	mux.HandleFunc("POST /api/tools/custom", s.pgCreateCustomTool)
 	mux.HandleFunc("POST /api/tools/custom/test", s.pgTestCustomTool)

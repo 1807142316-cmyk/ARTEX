@@ -71,6 +71,7 @@ import type {
   NotificationMeta,
   PromptVar,
   PromptVersion,
+  ScanTemplate,
   SessionTokenUsage,
   Settings,
   Severity,
@@ -1085,6 +1086,20 @@ export const api = {
 
   // ---- tools (内置工具目录) ----
   tools: () => get<{ tools: Tool[] }>("/tools").then((r) => arr(r.tools)),
+  scanTemplates: (query = "", severity = "", page = 1) => {
+    const params = new URLSearchParams();
+    if (query) params.set("q", query);
+    if (severity) params.set("severity", severity);
+    params.set("page", String(page));
+    return get<{
+      items: ScanTemplate[];
+      total: number;
+      page: number;
+      limit: number;
+    }>(`/scan-templates${params.size ? `?${params}` : ""}`);
+  },
+  importScanTemplate: (input: Pick<ScanTemplate, "content" | "source_url" | "source_version" | "license">) =>
+    post<ScanTemplate>("/scan-templates", input),
   saveTool: (key: string, patch: Pick<Tool, "description" | "schema" | "agents" | "enabled">) =>
     put<{ ok: boolean }>(`/tools/${key}`, patch),
   resetTool: (key: string) => post<{ ok: boolean }>(`/tools/${key}/reset`, {}),

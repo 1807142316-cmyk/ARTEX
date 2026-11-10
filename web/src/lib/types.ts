@@ -1239,6 +1239,22 @@ export interface Tool {
   calls?: number; // persistent runtime invocation count (older APIs may omit it)
 }
 
+export interface ScanTemplate {
+  id: string;
+  name: string;
+  author: string;
+  severity: string;
+  description: string;
+  tags: string[];
+  references: string[];
+  protocol: string;
+  source_url: string;
+  source_version: string;
+  license: string;
+  content_hash: string;
+  content: string;
+}
+
 // ---- Stats ----
 export interface Stats {
   assets: number;
