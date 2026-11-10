@@ -6,10 +6,13 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"regexp"
+	"sort"
 	"strings"
 )
 
 var ErrInvalidRecord = errors.New("invalid CVE record")
+var identifierPattern = regexp.MustCompile(`^CVE-[0-9]{4}-[0-9]{4,}$`)
 
 type Record struct {
 	ID            string          `json:"cve_id"`
@@ -58,9 +61,13 @@ func ParseRecord(raw json.RawMessage, sourceVersion string) (Record, error) {
 	if err := json.Unmarshal(raw, &document); err != nil {
 		return Record{}, fmt.Errorf("%w: %v", ErrInvalidRecord, err)
 	}
-	document.Metadata.ID = strings.TrimSpace(document.Metadata.ID)
-	if document.Metadata.ID == "" || !strings.HasPrefix(strings.ToUpper(document.Metadata.ID), "CVE-") {
-		return Record{}, fmt.Errorf("%w: cveMetadata.cveId is required", ErrInvalidRecord)
+	document.Metadata.ID = strings.ToUpper(strings.TrimSpace(document.Metadata.ID))
+	if !identifierPattern.MatchString(document.Metadata.ID) {
+		return Record{}, fmt.Errorf("%w: invalid cveMetadata.cveId", ErrInvalidRecord)
+	}
+	document.Metadata.State = strings.ToUpper(strings.TrimSpace(document.Metadata.State))
+	if document.Metadata.State != "PUBLISHED" && document.Metadata.State != "REJECTED" {
+		return Record{}, fmt.Errorf("%w: invalid cveMetadata.state", ErrInvalidRecord)
 	}
 
 	containers := append([]cveContainer{document.Containers.CNA}, document.Containers.ADP...)
@@ -72,17 +79,17 @@ func ParseRecord(raw json.RawMessage, sourceVersion string) (Record, error) {
 		Updated:       strings.TrimSpace(document.Metadata.Updated),
 		SourceVersion: strings.TrimSpace(sourceVersion),
 		Raw:           append(json.RawMessage(nil), raw...),
+		Products:      []string{},
+		References:    []string{},
 	}
 	productSet := make(map[string]struct{})
 	referenceSet := make(map[string]struct{})
-	descriptionSet := make(map[string]struct{})
 	for containerIndex, container := range containers {
 		for _, description := range container.Descriptions {
 			value := strings.TrimSpace(description.Value)
 			if value == "" {
 				continue
 			}
-			descriptionSet[value] = struct{}{}
 			if record.Description == "" || (containerIndex == 0 && strings.EqualFold(description.Language, "en")) {
 				record.Description = value
 			}
@@ -104,29 +111,15 @@ func ParseRecord(raw json.RawMessage, sourceVersion string) (Record, error) {
 			}
 		}
 	}
-	if record.Description == "" && len(descriptionSet) > 0 {
-		for description := range descriptionSet {
-			record.Description = description
-			break
-		}
-	}
 	for product := range productSet {
 		record.Products = append(record.Products, product)
 	}
 	for reference := range referenceSet {
 		record.References = append(record.References, reference)
 	}
-	sortStrings(record.Products)
-	sortStrings(record.References)
+	sort.Strings(record.Products)
+	sort.Strings(record.References)
 	hash := sha256.Sum256(raw)
 	record.ContentHash = hex.EncodeToString(hash[:])
 	return record, nil
-}
-
-func sortStrings(values []string) {
-	for i := 1; i < len(values); i++ {
-		for j := i; j > 0 && values[j] < values[j-1]; j-- {
-			values[j], values[j-1] = values[j-1], values[j]
-		}
-	}
 }

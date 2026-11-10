@@ -1,10 +1,10 @@
 package server
 
 import (
-	"context"
 	"encoding/json"
 	"errors"
 	"net/http"
+	"strconv"
 	"strings"
 
 	"github.com/Autumn-27/artex/cve"
@@ -40,7 +40,7 @@ func (s *Server) importCVERecords(w http.ResponseWriter, r *http.Request) {
 	for index, raw := range request.Records {
 		parsed, err := cve.ParseRecord(raw, request.SourceVersion)
 		if err != nil {
-			writeErr(w, http.StatusBadRequest, "invalid CVE record at index "+itoa(index))
+			writeErr(w, http.StatusBadRequest, "invalid CVE record at index "+strconv.Itoa(index))
 			return
 		}
 		records = append(records, db.CVERecord{
@@ -60,7 +60,7 @@ func (s *Server) importCVERecords(w http.ResponseWriter, r *http.Request) {
 func (s *Server) searchCVERecords(w http.ResponseWriter, r *http.Request) {
 	page := findingPaginationParam(r.URL.Query().Get("page"), 1, 0)
 	limit := findingPaginationParam(r.URL.Query().Get("limit"), 20, 100)
-	result, err := s.m.PG().SearchCVERecords(context.Background(), r.URL.Query().Get("q"), page, limit)
+	result, err := s.m.PG().SearchCVERecords(r.Context(), r.URL.Query().Get("q"), page, limit)
 	if err != nil {
 		writeErr(w, http.StatusInternalServerError, "search CVE records: "+err.Error())
 		return
@@ -75,18 +75,4 @@ func (s *Server) cveRecordStats(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	writeJSON(w, http.StatusOK, stats)
-}
-
-func itoa(value int) string {
-	if value == 0 {
-		return "0"
-	}
-	var buf [20]byte
-	i := len(buf)
-	for value > 0 {
-		i--
-		buf[i] = byte('0' + value%10)
-		value /= 10
-	}
-	return string(buf[i:])
 }
