@@ -35,7 +35,7 @@ record content hash and does not inflate added/modified totals.
 Downloads use temporary files and atomic rename, bounded transfer size, request
 timeouts, and no extraction of source-controlled paths. Archives and SHA-256
 manifests are stored in `<data>/content/cve/`, under the existing persistent data
-volume. Manifests record source URL/name/version, acquired time, SHA-256, parser
+volume. After a run finishes, obsolete hashed ZIPs are removed while archives referenced by queued/running runs and the latest successful content run remain. Historical manifests and database run metadata are retained. Non-cache files and links are left untouched. Manifests record source URL/name/version, acquired time, SHA-256, parser
 version and CVE Program terms URL. A resumed run checks its stored checksum before
 using an archive. Preserve this directory with PostgreSQL when backing up. Source
 archives are metadata only; they contain no exploit-code corpus.

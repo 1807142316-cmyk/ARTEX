@@ -10,10 +10,7 @@ import (
 )
 
 func TestCVEImportAndOfflineSearchThroughAuthenticatedAPI(t *testing.T) {
-	m, err := NewManager(t.TempDir(), "")
-	if err != nil {
-		t.Skipf("postgres unavailable (%v) — skipping", err)
-	}
+	m := newParityTestManager(t)
 	defer m.Close()
 
 	s := New(context.Background(), m, t.TempDir(), t.TempDir(), t.TempDir())
@@ -28,6 +25,18 @@ func TestCVEImportAndOfflineSearchThroughAuthenticatedAPI(t *testing.T) {
 		t.Fatal(err)
 	}
 	t.Cleanup(func() { _, _ = m.pg.Exec(`DELETE FROM cve_records WHERE cve_id='CVE-2099-76543'`) })
+	baselineRequest := httptest.NewRequest(http.MethodGet, "/api/cve/stats", nil)
+	baselineRequest.Header.Set("Authorization", "Bearer "+token)
+	baselineResponse := httptest.NewRecorder()
+	h.ServeHTTP(baselineResponse, baselineRequest)
+	var baseline struct {
+		Total  int            `json:"total"`
+		States map[string]int `json:"states"`
+		Years  map[string]int `json:"years"`
+	}
+	if err := json.Unmarshal(baselineResponse.Body.Bytes(), &baseline); err != nil || baselineResponse.Code != 200 {
+		t.Fatalf("initial stats failed: %s", baselineResponse.Body.String())
+	}
 	request := httptest.NewRequest(http.MethodPost, "/api/cve/import", bytes.NewReader(cveMustJSON(t, map[string]any{"records": []json.RawMessage{record}, "source_version": "fixture-1"})))
 	unauthenticated := httptest.NewRecorder()
 	h.ServeHTTP(unauthenticated, request)
@@ -105,7 +114,7 @@ func TestCVEImportAndOfflineSearchThroughAuthenticatedAPI(t *testing.T) {
 	if err := json.Unmarshal(stats.Body.Bytes(), &counts); err != nil {
 		t.Fatal(err)
 	}
-	if counts.Total != 1 || counts.States["PUBLISHED"] != 1 || counts.Years["2099"] != 1 {
+	if counts.Total != baseline.Total+1 || counts.States["PUBLISHED"] != baseline.States["PUBLISHED"]+1 || counts.Years["2099"] != baseline.Years["2099"]+1 {
 		t.Fatalf("unexpected real CVE stats: %+v", counts)
 	}
 

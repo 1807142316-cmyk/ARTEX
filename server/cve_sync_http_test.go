@@ -6,9 +6,9 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"github.com/Autumn-27/artex/db"
 	"net/http"
 	"net/http/httptest"
-	"os"
 	"strings"
 	"sync/atomic"
 	"testing"
@@ -16,8 +16,8 @@ import (
 )
 
 func TestCVESyncThroughAuthenticatedAPIKeepsOfflineCorpusAfterFailure(t *testing.T) {
-	if os.Getenv("ARTEX_PG_DSN") == "" {
-		t.Skip("ARTEX_PG_DSN is required")
+	if _, _, err := db.DSN(); err != nil {
+		t.Skipf("PostgreSQL DSN not configured: %v", err)
 	}
 	var generation atomic.Int32
 	var sourceFailed atomic.Bool
@@ -153,8 +153,8 @@ func TestCVESyncThroughAuthenticatedAPIKeepsOfflineCorpusAfterFailure(t *testing
 }
 
 func TestCVESyncResumesQueuedWorkAfterCancellationAndRejectsConcurrentStart(t *testing.T) {
-	if os.Getenv("ARTEX_PG_DSN") == "" {
-		t.Skip("ARTEX_PG_DSN is required")
+	if _, _, err := db.DSN(); err != nil {
+		t.Skipf("PostgreSQL DSN not configured: %v", err)
 	}
 	entered := make(chan struct{}, 1)
 	var blocked atomic.Bool
