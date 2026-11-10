@@ -60,6 +60,51 @@ export interface TaskTemplate {
   updated_at: string;
 }
 
+export interface KnowledgeEntry {
+  id: number;
+  code: string;
+  category: string;
+  kind: string;
+  tier: string;
+  summary: string;
+  body?: string;
+  source_url: string;
+  source_version: string;
+  content_version: number;
+  published: boolean;
+  verified: boolean;
+  verification_result?: string;
+  reviewed: boolean;
+  revoked: boolean;
+  use_count: number;
+  created_at: string;
+  updated_at: string;
+}
+
+export type KnowledgeInput = Pick<
+  KnowledgeEntry,
+  "code" | "category" | "kind" | "tier" | "summary" | "body" | "source_url" | "source_version"
+>;
+
+export interface KnowledgeHistory {
+  versions: (KnowledgeInput & { version: number; content_hash: string; created_at: string })[];
+  verifications: {
+    version: number;
+    result: "passed" | "failed";
+    evidence: string;
+    verified_by: string;
+    created_at: string;
+  }[];
+  reviews: {
+    version: number;
+    approved: boolean;
+    redacted: boolean;
+    notes: string;
+    reviewed_by: string;
+    created_at: string;
+  }[];
+}
+
 export interface DeleteTaskOptions {
   delete_assets: boolean;
   delete_traffic: boolean;
