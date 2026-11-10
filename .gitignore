@@ -33,6 +33,7 @@ web/next-env.d.ts
 !/docs/screenshot-parity-content-sources.md
 !/docs/screenshot-parity-acceptance.md
 !/docs/screenshot-parity-spec.md
+!/docs/screenshot-parity-status.md
 !/docs/agents/
 /docs/agents/*
 !/docs/agents/issue-tracker.md
