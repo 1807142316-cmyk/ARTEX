@@ -14,9 +14,11 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"time"
 
+	"github.com/Autumn-27/artex/agent"
 	"github.com/Autumn-27/artex/db"
 	"github.com/Autumn-27/norma/permission"
 	actool "github.com/Autumn-27/norma/tool"
@@ -442,10 +444,29 @@ func (s *Server) runHTTPTool(ctx context.Context, execRaw json.RawMessage, param
 		req.Header.Set(k, renderTemplate(v, params, identity))
 	}
 	client := &http.Client{Timeout: timeoutOr(spec.TimeoutMs, 30000)}
-	if tr := s.httpProxyTransport(spec); tr != nil {
+	if taskID := agent.RunInfoFrom(ctx).TaskID; taskID > 0 && s.m != nil && s.m.pg.GetBool(settingProxyPool, false) {
+		proxyAddress, cert := s.taskProxyAddress(strconv.FormatInt(taskID, 10))
+		tr := s.httpProxyTransport(httpExec{Proxy: proxyAddress})
+		if tr == nil {
+			return actool.Errorf("task egress unavailable"), nil
+		}
+		defer tr.CloseIdleConnections()
+		if cert != "" {
+			pem, readErr := os.ReadFile(cert)
+			pool := x509.NewCertPool()
+			if readErr != nil || !pool.AppendCertsFromPEM(pem) {
+				return actool.Errorf("task recording CA unavailable"), nil
+			}
+			tr.TLSClientConfig = &tls.Config{RootCAs: pool}
+		}
+		client.Transport = tr
+	} else if tr := s.httpProxyTransport(spec); tr != nil {
 		client.Transport = tr
 	}
 	resp, err := client.Do(req)
+	if transport, ok := client.Transport.(*http.Transport); ok {
+		defer transport.CloseIdleConnections()
+	}
 	if err != nil {
 		return actool.Errorf("请求失败: " + err.Error()), nil
 	}
@@ -463,7 +484,7 @@ func (s *Server) httpProxyTransport(spec httpExec) *http.Transport {
 	var caFile string
 	if spec.UseRecordingProxy {
 		if addr := s.m.ProxyAddr(); addr != "" {
-			proxyStr = "http://" + addr
+			proxyStr = addr
 			caFile = s.m.ProxyCACert()
 		}
 	}

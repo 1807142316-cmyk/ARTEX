@@ -122,6 +122,7 @@ type Server struct {
 	side        *sideQuestionState
 	cveSync     *cveSyncService
 	metrics     resourceSampler
+	proxyPool   *proxyPoolService
 }
 
 // provEntry is a cached provider + its config for one LLM profile id.
@@ -155,6 +156,7 @@ func New(ctx context.Context, m *Manager, skillDir string, dataDir string, keyDi
 		provByProfile:  map[int64]*provEntry{}, llmHealth: newLLMHealthRegistry(m.pg),
 		taskAgents: map[string]*taskAgentBundle{}, archiveWake: make(chan struct{}, 1)}
 	s.initSideQuestions()
+	s.initProxyPool()
 	// 熔断阈值/冷却是失败路径上的热参数，启动时把全局重试策略推给 Registry 一次；
 	// 之后每次保存策略再推一次（saveLLMRetryPolicy）。
 	s.applyRetryPolicy()
@@ -220,7 +222,7 @@ func New(ctx context.Context, m *Manager, skillDir string, dataDir string, keyDi
 			}
 			return a.TaskTimeoutWrapupMaxTurns, true
 		}
-		wireAgentAugment(m.pg, s.skillDir, s.hostTools) // 可见 skills/MCP + 流量/编排 host 工具装配进 agent 工具集
+		wireAgentAugment(m.pg, s.skillDir, s.hostTools, s.taskBrowserMCP) // task-local browser routing preserves stored MCP config
 		domainReg := buildDomainReg(m.Assets())
 		wireTools(m.pg, domainReg) // 内置工具表：按 agent 过滤 + 覆盖描述/schema + 注入默认值
 		seedPrompts(m.pg)          // 内置 agent 默认提示词正文播种进 agent_prompts(仅空时)
@@ -886,6 +888,13 @@ func (s *Server) Handler() http.Handler {
 	mux.HandleFunc("GET /api/tools", s.pgListTools)
 	mux.HandleFunc("GET /api/scan-templates", s.listScanTemplates)
 	mux.HandleFunc("POST /api/scan-templates", s.importScanTemplate)
+	mux.HandleFunc("GET /api/proxies", s.listProxyEndpoints)
+	mux.HandleFunc("POST /api/proxies", s.saveProxyEndpoint)
+	mux.HandleFunc("PUT /api/proxies/{proxyID}", s.saveProxyEndpoint)
+	mux.HandleFunc("POST /api/proxies/{proxyID}/check", s.checkProxyEndpoint)
+	mux.HandleFunc("PUT /api/proxies/settings", s.putProxySettings)
+	mux.HandleFunc("GET /api/tasks/{id}/egress", s.taskEgress)
+	mux.HandleFunc("POST /api/tasks/{id}/egress", s.taskEgress)
 	mux.HandleFunc("PUT /api/tools/{key}", s.pgUpdateTool)
 	mux.HandleFunc("POST /api/tools/custom", s.pgCreateCustomTool)
 	mux.HandleFunc("POST /api/tools/custom/test", s.pgTestCustomTool)

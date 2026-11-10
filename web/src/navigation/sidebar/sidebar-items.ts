@@ -90,6 +90,7 @@ export const sidebarItems: NavGroup[] = [
       { id: "commands", title: "工具执行", url: "/function/commands", icon: Terminal },
       { id: "llm-records", title: "LLM 录制", url: "/function/llm-records", icon: Radio },
       { id: "sync", title: "资产同步", url: "/function/sync", icon: FolderSync },
+      { id: "proxies", title: "代理池", url: "/system/proxies", icon: Network },
       { id: "workspace", title: "工作空间", url: "/function/workspace", icon: FolderOpen },
     ],
   },

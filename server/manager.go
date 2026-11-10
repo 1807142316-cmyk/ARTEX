@@ -245,6 +245,7 @@ type Manager struct {
 	// capture is on it becomes the MITM's upstream; when capture is off it is
 	// injected into agent bash env / WebFetch directly. See ProxyAddr.
 	globalProxy string
+	taskEnrich  func(string) agent.EnrichTrigger
 }
 
 // Settings keys the UI toggles at runtime.

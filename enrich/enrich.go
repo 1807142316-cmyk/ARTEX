@@ -33,9 +33,10 @@ const (
 )
 
 type job struct {
-	kind jobKind
-	id   int64  // asset id (domain for DNS, site for HTTP)
-	arg  string // host (DNS) or url (HTTP)
+	kind  jobKind
+	id    int64  // asset id (domain for DNS, site for HTTP)
+	arg   string // host (DNS) or url (HTTP)
+	proxy string
 }
 
 // Engine owns the resolver, the proxy-routed HTTP client, and the worker pool.
@@ -116,10 +117,19 @@ func buildClient(proxy func() string) *http.Client {
 
 // ResolveDomain enqueues a DNS resolution for a domain asset (ungated). host is the
 // FQDN. No-op for an empty engine.
-func (e *Engine) ResolveDomain(id int64, host string) { e.enqueue(job{jobDNS, id, host}) }
+func (e *Engine) ResolveDomain(id int64, host string) {
+	e.enqueue(job{kind: jobDNS, id: id, arg: host})
+}
 
 // ProbeSite enqueues an HTTP probe for a web-asset (site). rawURL is the site URL.
-func (e *Engine) ProbeSite(id int64, rawURL string) { e.enqueue(job{jobHTTP, id, rawURL}) }
+func (e *Engine) ProbeSite(id int64, rawURL string) {
+	e.enqueue(job{kind: jobHTTP, id: id, arg: rawURL})
+}
+
+// ProbeSiteVia pins an asynchronous probe to its originating task gateway.
+func (e *Engine) ProbeSiteVia(id int64, rawURL, proxy string) {
+	e.enqueue(job{kind: jobHTTP, id: id, arg: rawURL, proxy: proxy})
+}
 
 func (e *Engine) enqueue(j job) {
 	if e == nil || id0(j.id) || j.arg == "" {
@@ -155,7 +165,13 @@ func (e *Engine) worker() {
 			case jobDNS:
 				e.doDNS(j.id, j.arg)
 			case jobHTTP:
-				e.doHTTP(j.id, j.arg)
+				if j.proxy != "" {
+					client := buildClient(func() string { return j.proxy })
+					e.doHTTPWithClient(j.id, j.arg, client)
+					client.CloseIdleConnections()
+				} else {
+					e.doHTTP(j.id, j.arg)
+				}
 			}
 		}
 	}
@@ -163,7 +179,7 @@ func (e *Engine) worker() {
 
 // onCooldown returns true (skip) if this (kind,id) ran within the cooldown window.
 func (e *Engine) onCooldown(j job) bool {
-	key := string(rune(j.kind)) + ":" + itoa(j.id)
+	key := string(rune(j.kind)) + ":" + itoa(j.id) + ":" + j.proxy
 	if v, ok := e.cool.Load(key); ok {
 		if t, ok := v.(time.Time); ok && time.Since(t) < cooldown {
 			return true
@@ -222,6 +238,10 @@ func (e *Engine) doDNS(id int64, host string) {
 var reTitle = regexp.MustCompile(`(?is)<title[^>]*>(.*?)</title>`)
 
 func (e *Engine) doHTTP(id int64, rawURL string) {
+	e.doHTTPWithClient(id, rawURL, e.client)
+}
+
+func (e *Engine) doHTTPWithClient(id int64, rawURL string, client *http.Client) {
 	host := hostOf(rawURL)
 	if host == "" {
 		return
@@ -231,7 +251,7 @@ func (e *Engine) doHTTP(id int64, rawURL string) {
 		return
 	}
 	req.Header.Set("User-Agent", "artex-enrich/1.0")
-	resp, err := e.client.Do(req)
+	resp, err := client.Do(req)
 	if err != nil {
 		return
 	}
