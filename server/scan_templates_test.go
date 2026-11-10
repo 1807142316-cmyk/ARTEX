@@ -6,20 +6,13 @@ import (
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
-	"os"
 	"testing"
 
 	"github.com/Autumn-27/artex/db"
 )
 
 func TestScanTemplateCatalogImportAndSearchRequiresAuthentication(t *testing.T) {
-	m, err := NewManager(t.TempDir(), "")
-	if err != nil {
-		if os.Getenv("ARTEX_PG_DSN") != "" {
-			t.Fatalf("configured postgres unavailable: %v", err)
-		}
-		t.Skipf("postgres unavailable (%v) — skipping", err)
-	}
+	m := newParityTestManager(t)
 	defer m.Close()
 	s := New(context.Background(), m, t.TempDir(), t.TempDir(), t.TempDir())
 	h := s.Handler()

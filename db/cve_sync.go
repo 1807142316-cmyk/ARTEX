@@ -47,14 +47,21 @@ type CVESyncStatus struct {
 
 func (d *DB) CVESyncStatus(ctx context.Context) (CVESyncStatus, error) {
 	var s CVESyncStatus
-	err := d.QueryRowContext(ctx, `SELECT enabled,interval_minutes,next_check,last_check,last_success,source_version,baseline_name FROM cve_sync_state WHERE id=true`).Scan(&s.Enabled, &s.IntervalMinutes, &s.NextCheck, &s.LastCheck, &s.LastSuccess, &s.SourceVersion, &s.BaselineName)
+	// The committed cursor and latest run must describe the same database
+	// snapshot when a finish transaction commits between these reads.
+	tx, err := d.BeginTx(ctx, &sql.TxOptions{Isolation: sql.LevelRepeatableRead, ReadOnly: true})
 	if err != nil {
 		return s, err
 	}
-	r, err := scanCVESyncRun(d.QueryRowContext(ctx, `SELECT id,status,source_version,baseline_name,assets,checkpoint,added,modified,failed,last_error,created_at,finished_at FROM cve_sync_runs ORDER BY id DESC LIMIT 1`))
+	defer tx.Rollback()
+	err = tx.QueryRowContext(ctx, `SELECT enabled,interval_minutes,next_check,last_check,last_success,source_version,baseline_name FROM cve_sync_state WHERE id=true`).Scan(&s.Enabled, &s.IntervalMinutes, &s.NextCheck, &s.LastCheck, &s.LastSuccess, &s.SourceVersion, &s.BaselineName)
+	if err != nil {
+		return s, err
+	}
+	r, err := scanCVESyncRun(tx.QueryRowContext(ctx, `SELECT id,status,source_version,baseline_name,assets,checkpoint,added,modified,failed,last_error,created_at,finished_at FROM cve_sync_runs ORDER BY id DESC LIMIT 1`))
 	if errors.Is(err, sql.ErrNoRows) {
 		s.Status = "idle"
-		return s, nil
+		return s, tx.Commit()
 	}
 	if err != nil {
 		return s, err
@@ -65,7 +72,7 @@ func (d *DB) CVESyncStatus(ctx context.Context) (CVESyncStatus, error) {
 	s.Modified = r.Modified
 	s.Failed = r.Failed
 	s.LastError = r.LastError
-	return s, nil
+	return s, tx.Commit()
 }
 func scanCVESyncRun(row interface{ Scan(...any) error }) (CVESyncRun, error) {
 	var r CVESyncRun
