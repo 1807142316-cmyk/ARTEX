@@ -1,0 +1,72 @@
+{
+  "format_version": 1,
+  "packages": [
+    {
+      "name": "cve-record-review",
+      "version": "artex-authored-1",
+      "license": "AGPL-3.0-only",
+      "authored_date": "2026-11-11",
+      "source_kind": "original-workflow-and-script",
+      "reference_urls": [
+        "https://github.com/CVEProject/cvelistV5",
+        "https://github.com/CVEProject/cve-schema"
+      ],
+      "files": [
+        {
+          "path": "SKILL.md",
+          "bytes": 1957,
+          "sha256": "1acd9f02e73f192f946b2453b3f22bfd9f66cfc44365466f61377cecf25ca450"
+        },
+        {
+          "path": "scripts/run.py",
+          "bytes": 3138,
+          "sha256": "c46ceaf3bafad8cea60abd6d5d392270ce0a524060870d0f5e9850b971c6184e"
+        }
+      ]
+    },
+    {
+      "name": "evidence-inventory",
+      "version": "artex-authored-1",
+      "license": "AGPL-3.0-only",
+      "authored_date": "2026-11-11",
+      "source_kind": "original-workflow-and-script",
+      "reference_urls": [
+        "https://docs.python.org/3/library/hashlib.html"
+      ],
+      "files": [
+        {
+          "path": "SKILL.md",
+          "bytes": 1692,
+          "sha256": "e2d729ee8aef1fe87d97a4cd692c6d7197a714fb64c7084cc93586745d7cbcc9"
+        },
+        {
+          "path": "scripts/run.py",
+          "bytes": 2206,
+          "sha256": "8879bd7c84dfda93cecc6a2acd7ae1bcd486cdc63928c47d58a017d1ba1a7b98"
+        }
+      ]
+    },
+    {
+      "name": "saved-header-review",
+      "version": "artex-authored-1",
+      "license": "AGPL-3.0-only",
+      "authored_date": "2026-11-11",
+      "source_kind": "original-workflow-and-script",
+      "reference_urls": [
+        "https://cheatsheetseries.owasp.org/cheatsheets/HTTP_Headers_Cheat_Sheet.html"
+      ],
+      "files": [
+        {
+          "path": "SKILL.md",
+          "bytes": 1890,
+          "sha256": "9bd1243dc74e850112c03e5c525e78d701a28d27395a97b3e78ba566904af4f7"
+        },
+        {
+          "path": "scripts/run.py",
+          "bytes": 2651,
+          "sha256": "e04809409af802c2dfa8f90d28646102d5d372b9a59d1ad6ca50b9270627736c"
+        }
+      ]
+    }
+  ]
+}

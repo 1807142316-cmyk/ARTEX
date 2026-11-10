@@ -1,2 +1,8 @@
 *.bat text eol=crlf
 *.sh  text eol=lf
+skills/saved-header-review/** text eol=lf
+skills/evidence-inventory/** text eol=lf
+skills/cve-record-review/** text eol=lf
+skills/content-manifest.json text eol=lf
+scripts/skill_manifest.py text eol=lf
+tests/skills/*.py text eol=lf

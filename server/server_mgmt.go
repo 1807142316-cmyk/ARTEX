@@ -27,6 +27,7 @@ import (
 	"github.com/Autumn-27/artex/db"
 	"github.com/Autumn-27/norma/llm"
 	"github.com/Autumn-27/norma/skill"
+	"gopkg.in/yaml.v3"
 )
 
 // validSkillName checks the agentskills.io name constraints, widened so a skill can
@@ -958,6 +959,7 @@ func (s *Server) pgMCPTools(w http.ResponseWriter, r *http.Request) {
 // ---------- skills (文件系统) ----------
 
 type skillFileNode struct {
+	Category      string   `json:"category"`
 	Name          string   `json:"name"`
 	Description   string   `json:"description,omitempty"`
 	License       string   `json:"license,omitempty"`
@@ -1006,7 +1008,7 @@ func (s *Server) fsListSkills(w http.ResponseWriter, r *http.Request) {
 			continue
 		}
 		dirName := e.Name()
-		node := skillFileNode{Name: dirName, Agents: []string{}}
+		node := skillFileNode{Name: dirName, Agents: []string{}, Category: readSkillCategory(filepath.Join(s.skillDir, dirName, "SKILL.md"))}
 		if st, ok := statBySkill[dirName]; ok {
 			node.Calls, node.Tasks, node.Agents, node.LastUsed = st.Calls, st.Tasks, st.Agents, st.LastUsed
 		}
@@ -1015,6 +1017,14 @@ func (s *Server) fsListSkills(w http.ResponseWriter, r *http.Request) {
 			node.License = meta.License
 			node.Compatibility = meta.Compatibility
 			node.MCPs = meta.MCPs
+		}
+		query := strings.ToLower(strings.TrimSpace(r.URL.Query().Get("q")))
+		category := strings.TrimSpace(r.URL.Query().Get("category"))
+		if category != "" && category != node.Category {
+			continue
+		}
+		if query != "" && !strings.Contains(strings.ToLower(node.Name+" "+node.Description+" "+node.Category), query) {
+			continue
 		}
 		node.Files, _ = walkSkillFiles(filepath.Join(s.skillDir, dirName))
 		if node.Files == nil {
@@ -1075,6 +1085,7 @@ func cleanStrs(in []string) []string {
 func (s *Server) fsCreateSkill(w http.ResponseWriter, r *http.Request) {
 	var body struct {
 		Name          string   `json:"name"`
+		Category      string   `json:"category"`
 		Description   string   `json:"description"`   // required per agentskills.io spec
 		License       string   `json:"license"`       // optional
 		Compatibility string   `json:"compatibility"` // optional
@@ -1093,6 +1104,10 @@ func (s *Server) fsCreateSkill(w http.ResponseWriter, r *http.Request) {
 		writeErr(w, 400, "description is required")
 		return
 	}
+	if !validSkillCategory(body.Category) {
+		writeErr(w, 400, "category must be at most 100 characters without control characters")
+		return
+	}
 	skillPath := filepath.Join(s.skillDir, body.Name)
 	if _, err := os.Stat(skillPath); err == nil {
 		writeErr(w, 409, "skill already exists")
@@ -1109,7 +1124,8 @@ func (s *Server) fsCreateSkill(w http.ResponseWriter, r *http.Request) {
 	var sb strings.Builder
 	sb.WriteString("---\n")
 	fmt.Fprintf(&sb, "name: %s\n", body.Name)
-	fmt.Fprintf(&sb, "description: %s\n", body.Description)
+	fmt.Fprintf(&sb, "description: %q\n", body.Description)
+	fmt.Fprintf(&sb, "category: %q\n", strings.TrimSpace(body.Category))
 	if body.License != "" {
 		fmt.Fprintf(&sb, "license: %s\n", body.License)
 	}
@@ -1139,7 +1155,7 @@ func (s *Server) fsCreateSkill(w http.ResponseWriter, r *http.Request) {
 
 // fsUpdateSkillMeta rewrites the SKILL.md frontmatter fields that are safe to
 // change without touching the instruction body: mcps, license, compatibility,
-// description. Only fields present in the request body are updated; omitted
+// description and category. Only fields present in the request body are updated; omitted
 // fields are left as-is (the whole frontmatter is reconstructed from the
 // parsed values, so the write is a clean replace, not a line-patch).
 func (s *Server) fsUpdateSkillMeta(w http.ResponseWriter, r *http.Request) {
@@ -1149,6 +1165,7 @@ func (s *Server) fsUpdateSkillMeta(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	var body struct {
+		Category      *string   `json:"category"`
 		MCPs          *[]string `json:"mcps"`
 		Description   *string   `json:"description"`
 		License       *string   `json:"license"`
@@ -1164,7 +1181,11 @@ func (s *Server) fsUpdateSkillMeta(w http.ResponseWriter, r *http.Request) {
 		writeErr(w, 404, "skill not found")
 		return
 	}
-	updated, err := rewriteSkillFrontmatter(raw, body.MCPs, body.Description, body.License, body.Compatibility)
+	if body.Category != nil && !validSkillCategory(*body.Category) {
+		writeErr(w, 400, "category must be at most 100 characters without control characters")
+		return
+	}
+	updated, err := rewriteSkillFrontmatter(raw, body.MCPs, body.Description, body.License, body.Compatibility, body.Category)
 	if err != nil {
 		writeErr(w, 400, err.Error())
 		return
@@ -1176,81 +1197,99 @@ func (s *Server) fsUpdateSkillMeta(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, 200, map[string]any{"ok": true})
 }
 
-// rewriteSkillFrontmatter parses the SKILL.md YAML frontmatter and replaces the
-// fields given as non-nil pointers. The instruction body (after the closing ---) is
-// preserved verbatim. Returns an error if the file has no recognisable frontmatter.
-func rewriteSkillFrontmatter(content []byte, mcps *[]string, description, license, compatibility *string) ([]byte, error) {
-	lines := strings.Split(string(content), "\n")
-	if len(lines) < 2 || strings.TrimSpace(lines[0]) != "---" {
-		return nil, fmt.Errorf("SKILL.md has no YAML frontmatter")
+func validSkillCategory(value string) bool {
+	if !utf8.ValidString(value) || utf8.RuneCountInString(value) > 100 {
+		return false
 	}
-	fmEnd := -1
+	for _, r := range value {
+		if unicode.IsControl(r) {
+			return false
+		}
+	}
+	return true
+}
+
+func splitSkillFrontmatter(content []byte) ([]byte, []byte, error) {
+	lines := bytes.SplitAfter(content, []byte("\n"))
+	if len(lines) < 2 || strings.TrimSpace(string(lines[0])) != "---" {
+		return nil, nil, fmt.Errorf("SKILL.md has no YAML frontmatter")
+	}
 	for i := 1; i < len(lines); i++ {
-		if strings.TrimSpace(lines[i]) == "---" {
-			fmEnd = i
-			break
+		if strings.TrimSpace(string(lines[i])) == "---" {
+			return bytes.Join(lines[1:i], nil), bytes.Join(lines[i+1:], nil), nil
 		}
 	}
-	if fmEnd < 0 {
-		return nil, fmt.Errorf("SKILL.md frontmatter is not closed")
+	return nil, nil, fmt.Errorf("SKILL.md frontmatter is not closed")
+}
+
+func readSkillCategory(path string) string {
+	content, err := os.ReadFile(path)
+	if err != nil {
+		return ""
 	}
-	// Collect existing key → value from frontmatter (preserve unknown keys)
-	type kv struct{ k, v string }
-	var pairs []kv
-	for _, l := range lines[1:fmEnd] {
-		if idx := strings.IndexByte(l, ':'); idx >= 0 {
-			pairs = append(pairs, kv{strings.TrimSpace(l[:idx]), strings.TrimSpace(l[idx+1:])})
-		} else if strings.TrimSpace(l) != "" {
-			pairs = append(pairs, kv{"", l}) // preserve non-key lines verbatim
-		}
+	frontmatter, _, err := splitSkillFrontmatter(content)
+	if err != nil {
+		return ""
 	}
-	// Apply updates (nil pointer = no change)
-	applyStr := func(key string, val *string) {
-		if val == nil {
-			return
+	var meta struct {
+		Category string `yaml:"category"`
+	}
+	if yaml.Unmarshal(frontmatter, &meta) != nil {
+		return ""
+	}
+	return strings.TrimSpace(meta.Category)
+}
+
+// rewriteSkillFrontmatter preserves unknown YAML structures and the exact body.
+func rewriteSkillFrontmatter(content []byte, mcps *[]string, description, license, compatibility, category *string) ([]byte, error) {
+	frontmatter, body, err := splitSkillFrontmatter(content)
+	if err != nil {
+		return nil, err
+	}
+	var document yaml.Node
+	if err := yaml.Unmarshal(frontmatter, &document); err != nil {
+		return nil, fmt.Errorf("invalid SKILL.md metadata: %w", err)
+	}
+	if len(document.Content) != 1 || document.Content[0].Kind != yaml.MappingNode {
+		return nil, fmt.Errorf("SKILL.md metadata must be a mapping")
+	}
+	mapping := document.Content[0]
+	set := func(key string, value any) error {
+		var encoded yaml.Node
+		if err := encoded.Encode(value); err != nil {
+			return err
 		}
-		for i, p := range pairs {
-			if p.k == key {
-				pairs[i].v = strings.TrimSpace(*val)
-				return
+		for i := 0; i < len(mapping.Content); i += 2 {
+			if mapping.Content[i].Value == key {
+				mapping.Content[i+1] = &encoded
+				return nil
 			}
 		}
-		pairs = append(pairs, kv{key, strings.TrimSpace(*val)})
+		mapping.Content = append(mapping.Content, &yaml.Node{Kind: yaml.ScalarNode, Tag: "!!str", Value: key}, &encoded)
+		return nil
 	}
-	applyStr("description", description)
-	applyStr("license", license)
-	applyStr("compatibility", compatibility)
+	for _, field := range []struct {
+		key   string
+		value *string
+	}{{"description", description}, {"license", license}, {"compatibility", compatibility}, {"category", category}} {
+		if field.value != nil {
+			if err := set(field.key, strings.TrimSpace(*field.value)); err != nil {
+				return nil, err
+			}
+		}
+	}
 	if mcps != nil {
-		cleaned := cleanStrs(*mcps)
-		// Remove existing mcps line
-		filtered := pairs[:0]
-		for _, p := range pairs {
-			if p.k != "mcps" {
-				filtered = append(filtered, p)
-			}
-		}
-		pairs = filtered
-		if len(cleaned) > 0 {
-			pairs = append(pairs, kv{"mcps", strings.Join(cleaned, ", ")})
+		if err := set("mcps", cleanStrs(*mcps)); err != nil {
+			return nil, err
 		}
 	}
-	// Reconstruct
-	var sb strings.Builder
-	sb.WriteString("---\n")
-	for _, p := range pairs {
-		if p.k == "" {
-			sb.WriteString(p.v)
-		} else {
-			fmt.Fprintf(&sb, "%s: %s", p.k, p.v)
-		}
-		sb.WriteByte('\n')
+	encoded, err := yaml.Marshal(&document)
+	if err != nil {
+		return nil, err
 	}
-	sb.WriteString("---\n")
-	// Body (lines after closing ---)
-	if fmEnd+1 < len(lines) {
-		sb.WriteString(strings.Join(lines[fmEnd+1:], "\n"))
-	}
-	return []byte(sb.String()), nil
+	result := append([]byte("---\n"), encoded...)
+	result = append(result, []byte("---\n")...)
+	return append(result, body...), nil
 }
 
 // zip-upload safety caps (defeat zip bombs / runaway archives).
@@ -1536,7 +1575,7 @@ func skillRelPath(file string) (string, string) {
 	if clean == "." || filepath.IsAbs(clean) || strings.HasPrefix(clean, "..") {
 		return "", "invalid path"
 	}
-	return clean, ""
+	return filepath.ToSlash(clean), ""
 }
 
 // walkSkillFiles returns all files under root (relative to root), sorted,
