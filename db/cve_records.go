@@ -41,6 +41,10 @@ func (d *DB) UpsertCVERecords(ctx context.Context, records []CVERecord) (CVEImpo
 		return result, err
 	}
 	defer tx.Rollback()
+	// Serialize imports, including first inserts whose row does not yet exist.
+	if _, err := tx.ExecContext(ctx, `SELECT pg_advisory_xact_lock(7337741011)`); err != nil {
+		return result, err
+	}
 	for _, record := range records {
 		products, err := json.Marshal(record.Products)
 		if err != nil {
@@ -92,7 +96,7 @@ func (d *DB) SearchCVERecords(ctx context.Context, query string, page, limit int
 	query = strings.TrimSpace(query)
 	var result CVEPage
 	result.Page, result.Limit = page, limit
-	pattern := "%" + strings.ReplaceAll(strings.ReplaceAll(query, "%", "\\%"), "_", "\\_") + "%"
+	pattern := "%" + strings.NewReplacer(`\`, `\\`, "%", `\%`, "_", `\_`).Replace(query) + "%"
 	if err := d.QueryRowContext(ctx, `SELECT count(*) FROM cve_records WHERE $1='' OR cve_id ILIKE $2 ESCAPE '\' OR description ILIKE $2 ESCAPE '\' OR products::text ILIKE $2 ESCAPE '\' OR reference_urls::text ILIKE $2 ESCAPE '\'`, query, pattern).Scan(&result.Total); err != nil {
 		return result, err
 	}

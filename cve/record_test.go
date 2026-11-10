@@ -44,13 +44,25 @@ func TestParseRecordFallsBackToNonEnglishDescriptionAndKeepsRejectedState(t *tes
 
 func TestParseRecordRejectsMissingIdentifierAndMalformedJSON(t *testing.T) {
 	for name, input := range map[string]json.RawMessage{
-		"missing id": json.RawMessage(`{"cveMetadata":{"state":"PUBLISHED"}}`),
-		"malformed":  json.RawMessage(`{"cveMetadata":`),
+		"missing id":    json.RawMessage(`{"cveMetadata":{"state":"PUBLISHED"}}`),
+		"malformed":     json.RawMessage(`{"cveMetadata":`),
+		"invalid id":    json.RawMessage(`{"cveMetadata":{"cveId":"CVE-bad","state":"PUBLISHED"}}`),
+		"invalid state": json.RawMessage(`{"cveMetadata":{"cveId":"CVE-2099-76543","state":"UNKNOWN"}}`),
 	} {
 		t.Run(name, func(t *testing.T) {
 			if _, err := ParseRecord(input, "fixture"); err == nil {
 				t.Fatal("expected invalid record error")
 			}
 		})
+	}
+}
+
+func TestParseRecordNormalizesIdentifierAndEmptyCollections(t *testing.T) {
+	got, err := ParseRecord(json.RawMessage(`{"cveMetadata":{"cveId":" cve-2099-76543 ","state":"REJECTED"}}`), "fixture")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got.ID != "CVE-2099-76543" || got.Products == nil || got.References == nil {
+		t.Fatalf("record has inconsistent API fields: %+v", got)
 	}
 }
