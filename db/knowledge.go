@@ -525,9 +525,10 @@ type KnowledgeReview struct {
 }
 
 type KnowledgeHistory struct {
-	Versions      []KnowledgeVersion      `json:"versions"`
-	Verifications []KnowledgeVerification `json:"verifications"`
-	Reviews       []KnowledgeReview       `json:"reviews"`
+	Versions         []KnowledgeVersion      `json:"versions"`
+	Verifications    []KnowledgeVerification `json:"verifications"`
+	Reviews          []KnowledgeReview       `json:"reviews"`
+	CandidateSources []*KnowledgeCandidate   `json:"candidate_sources"`
 }
 
 func (d *DB) KnowledgeHistory(id int64) (*KnowledgeHistory, error) {
@@ -539,6 +540,10 @@ func (d *DB) KnowledgeHistory(id int64) (*KnowledgeHistory, error) {
 		return nil, ErrKnowledgeNotFound
 	}
 	h := &KnowledgeHistory{Versions: []KnowledgeVersion{}, Verifications: []KnowledgeVerification{}, Reviews: []KnowledgeReview{}}
+	h.CandidateSources, err = d.ListKnowledgeCandidates(id)
+	if err != nil {
+		return nil, err
+	}
 	rows, err := d.Query(`SELECT version,code,category,kind,tier,summary,body,source_url,source_version,content_hash,created_at FROM knowledge_versions WHERE entry_id=$1 ORDER BY version DESC LIMIT 100`, id)
 	if err != nil {
 		return nil, err

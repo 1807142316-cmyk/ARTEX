@@ -89,6 +89,7 @@ export type KnowledgeInput = Pick<
 >;
 
 export interface KnowledgeHistory {
+  candidate_sources: KnowledgeCandidate[];
   versions: (KnowledgeInput & { version: number; content_hash: string; created_at: string })[];
   verifications: {
     version: number;
@@ -105,6 +106,18 @@ export interface KnowledgeHistory {
     reviewed_by: string;
     created_at: string;
   }[];
+}
+
+export interface KnowledgeCandidate {
+  id: number;
+  finding_id: number | null;
+  task_id: number | null;
+  source_identity: string;
+  source_version: number;
+  source_hash: string;
+  evidence_refs: { binding_id: number; snapshot_id: string }[];
+  entry_id: number | null;
+  created_at: string;
 }
 
 export interface DeleteTaskOptions {
