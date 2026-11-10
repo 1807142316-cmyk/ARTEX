@@ -9,7 +9,9 @@ import {
   ArrowUpRightIcon,
   BugIcon,
   ClockIcon,
+  LoaderCircleIcon,
   NetworkIcon,
+  PlayIcon,
   ShieldCheckIcon,
   TargetIcon,
   ZapIcon,
@@ -18,8 +20,10 @@ import { Bar, BarChart, CartesianGrid, Tooltip as RechartsTooltip, XAxis, YAxis 
 
 import { StatusBadge } from "@/components/status-badge";
 import { Badge } from "@/components/ui/badge";
+import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { type ChartConfig, ChartContainer, ChartTooltip, ChartTooltipContent } from "@/components/ui/chart";
+import { Input } from "@/components/ui/input";
 import { Progress } from "@/components/ui/progress";
 import { api } from "@/lib/api";
 import type {
@@ -27,12 +31,14 @@ import type {
   Agent,
   ConvTokenSummary,
   Finding,
+  FindingStats,
   InterceptPending,
   LLMProfile,
   MCPServer,
   Settings,
   SkillItem,
   Stats,
+  SystemMetrics,
   Task,
   TokenTotal,
   Tool,
@@ -48,6 +54,12 @@ const dailyTrendConfig = {
   output: { label: "输出", color: "hsl(263 70% 60%)" },
   cacheRead: { label: "缓存读", color: "hsl(160 60% 45%)" },
 } satisfies ChartConfig;
+
+const quickStages = [
+  { key: "full", label: "完整流程", goal: "围绕目标进行资产识别、测试、证据验证、结果报告与经验整理。" },
+  { key: "assets", label: "资产识别", goal: "仅识别目标资产及可达服务，整理可验证的攻击面清单。" },
+  { key: "testing", label: "漏洞测试", goal: "仅检查目标已知漏洞线索，保留证据并生成候选发现。" },
+] as const;
 
 // ── helpers ──────────────────────────────────────────────────────────────────
 
@@ -133,6 +145,7 @@ export default function DashboardPage() {
   // data state
   const [tasks, setTasks] = React.useState<Task[]>([]);
   const [findings, setFindings] = React.useState<Finding[]>([]);
+  const [findingStats, setFindingStats] = React.useState<FindingStats | null>(null);
   const [stats, setStats] = React.useState<Stats | null>(null);
   const [settings, setSettings] = React.useState<Settings | null>(null);
   const [pending, setPending] = React.useState<InterceptPending[]>([]);
@@ -147,6 +160,38 @@ export default function DashboardPage() {
   const [skills, setSkills] = React.useState<SkillItem[]>([]);
   const [tools, setTools] = React.useState<Tool[]>([]);
   const [llmProfiles, setLLMProfiles] = React.useState<LLMProfile[]>([]);
+  const [quickGoal, setQuickGoal] = React.useState("");
+  const [quickStage, setQuickStage] = React.useState<string>("full");
+  const [quickTimeout, setQuickTimeout] = React.useState("0");
+  const [quickHeartbeat, setQuickHeartbeat] = React.useState("600");
+  const [quickModel, setQuickModel] = React.useState("");
+  const [quickStarting, setQuickStarting] = React.useState(false);
+  const [quickStartError, setQuickStartError] = React.useState<string | null>(null);
+  const quickRequest = React.useRef<{ signature: string; key: string } | null>(null);
+  const quickBusy = React.useRef(false);
+  const [metrics, setMetrics] = React.useState<SystemMetrics | null>(null);
+  const [metricsError, setMetricsError] = React.useState(false);
+
+  React.useEffect(() => {
+    let alive = true;
+    const load = async () => {
+      try {
+        const result = await api.systemMetrics();
+        if (alive) {
+          setMetrics(result);
+          setMetricsError(false);
+        }
+      } catch {
+        if (alive) setMetricsError(true);
+      }
+    };
+    void load();
+    const timer = setInterval(load, 5000);
+    return () => {
+      alive = false;
+      clearInterval(timer);
+    };
+  }, []);
 
   // The task list is the most expensive dashboard source. Poll it independently
   // so a large history cannot hold back every other dashboard panel.
@@ -187,17 +232,20 @@ export default function DashboardPage() {
       if (loading) return;
       loading = true;
       try {
-        const [findings, stats, settings, pending, activity, tokens, conversationTokens] = await Promise.all([
-          api.findings(),
-          api.stats(),
-          api.settings(),
-          api.interceptPending(),
-          api.activity(undefined, { limit: 30 }),
-          api.tokenStats(),
-          api.conversationTokens(),
-        ]);
+        const [findings, stats, settings, pending, activity, tokens, conversationTokens, findingSummary] =
+          await Promise.all([
+            api.findings(),
+            api.stats(),
+            api.settings(),
+            api.interceptPending(),
+            api.activity(undefined, { limit: 30 }),
+            api.tokenStats(),
+            api.conversationTokens(),
+            api.findingStats(),
+          ]);
         if (!alive) return;
         setFindings(findings);
+        setFindingStats(findingSummary);
         setStats(stats);
         setSettings(settings);
         setPending(pending);
@@ -263,12 +311,13 @@ export default function DashboardPage() {
   }, [tasks]);
 
   const findingsBySev = React.useMemo(() => {
-    const m = { critical: 0, high: 0, medium: 0, low: 0 };
-    for (const f of findings) {
-      if (f.severity in m) m[f.severity as keyof typeof m]++;
-    }
-    return m;
-  }, [findings]);
+    return {
+      critical: findingStats?.critical ?? 0,
+      high: findingStats?.high ?? 0,
+      medium: findingStats?.medium ?? 0,
+      low: findingStats?.low ?? 0,
+    };
+  }, [findingStats]);
 
   const sortedTasks = React.useMemo(
     () =>
@@ -323,6 +372,42 @@ export default function DashboardPage() {
   const activeProfile = llmProfiles.find((p) => p.is_default);
   const enabledTools = tools.filter((t) => t.enabled);
   const pendingCount = pending.length;
+  const quickProfile = llmProfiles.find((profile) => String(profile.id) === quickModel) ?? activeProfile;
+
+  async function startQuickTask() {
+    const target = quickGoal.trim();
+    if (!target || quickBusy.current) return;
+    const stage = quickStages.find((item) => item.key === quickStage) ?? quickStages[0];
+    const timeout = Number(quickTimeout);
+    const heartbeat = Number(quickHeartbeat);
+    if (!Number.isSafeInteger(timeout) || timeout < 0 || !Number.isSafeInteger(heartbeat) || heartbeat < 600) {
+      setQuickStartError("超时需为非负整数秒，规划间隔至少 600 秒");
+      return;
+    }
+    const input = {
+      description: `${stage.label} · ${target}`,
+      goal: `目标：${target}\n任务范围：${stage.goal}`,
+      timeoutSeconds: timeout,
+      planHeartbeatSeconds: heartbeat,
+      llmProfileIds: quickModel ? [Number(quickModel)] : [],
+    };
+    const signature = JSON.stringify(input);
+    if (quickRequest.current?.signature !== signature) {
+      const key = globalThis.crypto?.randomUUID?.() ?? `dashboard-${Date.now()}-${Math.random().toString(36).slice(2)}`;
+      quickRequest.current = { signature, key };
+    }
+    quickBusy.current = true;
+    setQuickStarting(true);
+    setQuickStartError(null);
+    try {
+      const created = await api.createTask(input, { idempotencyKey: quickRequest.current.key });
+      window.location.assign(`/function/tasks/detail?id=${encodeURIComponent(created.id)}`);
+    } catch (error) {
+      setQuickStartError((error as Error).message || "任务创建失败，请稍后重试");
+      quickBusy.current = false;
+      setQuickStarting(false);
+    }
+  }
 
   // ── token stats per LLM profile ──────────────────────────────────────────
   // tasks whose llm_profile_id is null/undefined used the active default profile
@@ -496,10 +581,170 @@ export default function DashboardPage() {
       {/* ── Header ── */}
       <div>
         <div>
-          <h1 className="text-lg font-semibold tracking-tight">总览</h1>
+          <h1 className="text-lg font-semibold tracking-tight">工作台</h1>
           <p className="text-xs text-muted-foreground">系统全局状态 · 实时刷新</p>
         </div>
       </div>
+
+      <Card className="p-4">
+        <div className="mb-3">
+          <div className="text-sm font-semibold">快速开始</div>
+          <p className="mt-1 text-xs text-muted-foreground">输入目标并选择任务范围，沿用当前模型、并发和拦截规则。</p>
+        </div>
+        <form
+          className="flex flex-col gap-2 sm:flex-row"
+          onSubmit={(event) => {
+            event.preventDefault();
+            void startQuickTask();
+          }}
+        >
+          <Input
+            aria-label="任务目标"
+            placeholder="输入目标或任务描述"
+            value={quickGoal}
+            onChange={(event) => setQuickGoal(event.target.value)}
+            maxLength={4000}
+            disabled={quickStarting}
+          />
+          <Button type="submit" disabled={!quickGoal.trim() || quickStarting}>
+            {quickStarting ? <LoaderCircleIcon className="animate-spin" /> : <PlayIcon />}
+            {quickStarting ? "正在启动" : "开始任务"}
+          </Button>
+        </form>
+        {quickStartError && (
+          <p role="alert" className="mt-2 text-xs text-destructive">
+            {quickStartError}
+          </p>
+        )}
+        <div className="mt-3 flex flex-wrap gap-2">
+          {quickStages.map((stage) => (
+            <button
+              key={stage.key}
+              type="button"
+              aria-pressed={quickStage === stage.key}
+              onClick={() => setQuickStage(stage.key)}
+              disabled={quickStarting}
+              className={cn(
+                "rounded-md border px-2.5 py-1.5 text-xs transition-colors hover:bg-muted disabled:opacity-50",
+                quickStage === stage.key ? "border-primary bg-primary/10 text-foreground" : "text-muted-foreground",
+              )}
+            >
+              {stage.label}
+            </button>
+          ))}
+        </div>
+        <details className="mt-3 text-xs">
+          <summary className="cursor-pointer text-muted-foreground">生效配置与任务覆盖</summary>
+          <div className="mt-3 grid gap-3 sm:grid-cols-3">
+            <label htmlFor="quick-model" className="space-y-1">
+              模型配置
+              <select
+                id="quick-model"
+                aria-label="快速开始模型"
+                value={quickModel}
+                onChange={(event) => setQuickModel(event.target.value)}
+                disabled={quickStarting}
+                className="h-9 w-full rounded-md border bg-background px-2"
+              >
+                <option value="">当前默认：{activeProfile?.model ?? "未配置"}</option>
+                {llmProfiles.map((profile) => (
+                  <option key={profile.id} value={String(profile.id)}>
+                    {profile.name} · {profile.model}
+                  </option>
+                ))}
+              </select>
+            </label>
+            <label htmlFor="quick-timeout" className="space-y-1">
+              任务超时（秒，0 为不限）
+              <Input
+                id="quick-timeout"
+                aria-label="快速开始任务超时"
+                type="number"
+                min="0"
+                step="1"
+                value={quickTimeout}
+                onChange={(event) => setQuickTimeout(event.target.value)}
+                disabled={quickStarting}
+              />
+            </label>
+            <label htmlFor="quick-heartbeat" className="space-y-1">
+              规划间隔（秒）
+              <Input
+                id="quick-heartbeat"
+                aria-label="快速开始规划间隔"
+                type="number"
+                min="600"
+                step="1"
+                value={quickHeartbeat}
+                onChange={(event) => setQuickHeartbeat(event.target.value)}
+                disabled={quickStarting}
+              />
+            </label>
+          </div>
+        </details>
+        <p className="mt-3 text-xs text-muted-foreground">
+          Worker 并发 {settings?.workers ?? "加载中"} · 任务并发{" "}
+          {settings ? (settings.task_concurrency_enabled ? settings.task_concurrency_limit : "不限") : "加载中"}
+          {" · "}单次响应 Token{" "}
+          {quickProfile
+            ? quickProfile.max_tokens && quickProfile.max_tokens > 0
+              ? quickProfile.max_tokens
+              : "模型默认"
+            : "未配置"}
+          {" · "}
+          <Link href="/system/intercept" className="underline">
+            沿用全局拦截规则
+          </Link>
+        </p>
+      </Card>
+
+      <Card className="p-4">
+        <div className="flex flex-wrap items-center justify-between gap-2">
+          <div className="text-sm font-semibold">
+            资源监控{" "}
+            <span className="ml-2 text-xs font-normal text-muted-foreground">
+              {metrics?.scope === "container"
+                ? "容器指标"
+                : metrics?.scope === "process"
+                  ? "Linux 进程指标"
+                  : "采集状态"}
+            </span>
+          </div>
+          <span className="text-xs text-muted-foreground">
+            {metrics
+              ? `采样 ${new Date(metrics.sampled_at).toLocaleTimeString()} · ${metrics.source || "Linux 采集器"}`
+              : "等待采样"}
+          </span>
+        </div>
+        {metricsError || metrics?.scope === "unavailable" ? (
+          <p role="status" className="mt-2 text-xs text-muted-foreground">
+            {metricsError ? "资源采集暂时失败，稍后自动重试" : metrics?.error}
+          </p>
+        ) : (
+          <div className="mt-3 grid gap-4 sm:grid-cols-2">
+            <div>
+              <p className="mb-2 text-xs">
+                CPU {metrics?.cpu.percent == null ? "等待采样窗口" : `${metrics.cpu.percent.toFixed(1)}%`} · 可用{" "}
+                {metrics?.cpu.limit_cores ?? "—"} 核
+              </p>
+              <Progress value={metrics?.cpu.percent ?? 0} aria-label="CPU 使用率" />
+            </div>
+            <div>
+              <p className="mb-2 text-xs">
+                内存 {metrics?.memory.used == null ? "—" : `${(metrics.memory.used / 1024 / 1024).toFixed(1)} MiB`} ·
+                限制{" "}
+                {metrics?.memory.limit == null ? "未配置" : `${(metrics.memory.limit / 1024 / 1024).toFixed(1)} MiB`}
+              </p>
+              {metrics?.memory.limit != null && metrics.memory.limit > 0 && (
+                <Progress
+                  value={Math.min(100, ((metrics.memory.used ?? 0) / metrics.memory.limit) * 100)}
+                  aria-label="内存使用率"
+                />
+              )}
+            </div>
+          </div>
+        )}
+      </Card>
 
       {/* ── Row 1: 5 stat cards ── */}
       <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-5">
@@ -526,9 +771,9 @@ export default function DashboardPage() {
         <Card className="gap-1">
           <CardHeader className="pb-0">
             <div className="flex items-center gap-1.5 text-[10px] text-muted-foreground">
-              <BugIcon className="size-3" /> 确认发现
+              <BugIcon className="size-3" /> 已登记发现
             </div>
-            <div className="text-2xl font-semibold tabular-nums">{findings.length}</div>
+            <div className="text-2xl font-semibold tabular-nums">{findingStats?.total ?? "—"}</div>
           </CardHeader>
           <CardContent className="flex flex-wrap gap-2.5 text-[10px]">
             <span className="text-rose-500">严重 {findingsBySev.critical}</span>
@@ -555,7 +800,7 @@ export default function DashboardPage() {
             <div className="flex items-center gap-1.5 text-[10px] text-muted-foreground">
               <ActivityIcon className="size-3" /> 流量交互
             </div>
-            <div className="text-2xl font-semibold tabular-nums">{traffic.length}</div>
+            <div className="text-2xl font-semibold tabular-nums">{stats?.traffic ?? "—"}</div>
           </CardHeader>
           <CardContent className="flex items-center gap-1.5 text-[10px] text-muted-foreground">
             {settings?.traffic_capture ? (
