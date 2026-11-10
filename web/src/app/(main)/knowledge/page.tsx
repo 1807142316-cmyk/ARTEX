@@ -28,6 +28,7 @@ const emptyDraft = {
 export default function KnowledgePage() {
   const [items, setItems] = React.useState<KnowledgeEntry[]>([]);
   const [query, setQuery] = React.useState("");
+  const [matchBody, setMatchBody] = React.useState(true);
   const [filter, setFilter] = React.useState("all");
   const [loading, setLoading] = React.useState(true);
   const [selected, setSelected] = React.useState<KnowledgeEntry | null>(null);
@@ -53,6 +54,46 @@ export default function KnowledgePage() {
   const [candidateID, setCandidateID] = React.useState<number | null>(null);
   const [candidateRedacted, setCandidateRedacted] = React.useState(false);
   const [showCandidates, setShowCandidates] = React.useState(false);
+  const [candidatePage, setCandidatePage] = React.useState(1);
+  const [candidateTotal, setCandidateTotal] = React.useState(0);
+  const [candidateLoading, setCandidateLoading] = React.useState(false);
+  const [candidateEvidence, setCandidateEvidence] = React.useState<{
+    id: number;
+    result: Awaited<ReturnType<typeof api.knowledgeCandidateEvidence>>;
+  } | null>(null);
+  const [evidenceLoading, setEvidenceLoading] = React.useState(false);
+  const evidenceSequence = React.useRef(0);
+  const candidateLoadSequence = React.useRef(0);
+
+  const loadCandidates = React.useCallback(async (nextPage: number) => {
+    const sequence = ++candidateLoadSequence.current;
+    setCandidateLoading(true);
+    try {
+      const result = await api.knowledgeCandidates(nextPage);
+      if (sequence !== candidateLoadSequence.current) return;
+      setCandidates(result.items);
+      setCandidateTotal(result.total);
+      setCandidatePage(result.page);
+    } catch (error) {
+      toast.error(`候选加载失败：${(error as Error).message}`);
+    } finally {
+      if (sequence === candidateLoadSequence.current) setCandidateLoading(false);
+    }
+  }, []);
+
+  async function previewCandidateEvidence(id: number, snapshotID: string) {
+    const sequence = ++evidenceSequence.current;
+    setCandidateEvidence(null);
+    setEvidenceLoading(true);
+    try {
+      const result = await api.knowledgeCandidateEvidence(id, snapshotID);
+      if (sequence === evidenceSequence.current) setCandidateEvidence({ id, result });
+    } catch (error) {
+      if (sequence === evidenceSequence.current) toast.error(`证据读取失败：${(error as Error).message}`);
+    } finally {
+      if (sequence === evidenceSequence.current) setEvidenceLoading(false);
+    }
+  }
 
   const load = React.useCallback(async () => {
     const sequence = ++loadSequence.current;
@@ -60,6 +101,7 @@ export default function KnowledgePage() {
     try {
       const result = await api.knowledge({
         q: query,
+        match_body: matchBody,
         category,
         kind,
         tier,
@@ -79,7 +121,7 @@ export default function KnowledgePage() {
     } finally {
       if (sequence === loadSequence.current) setLoading(false);
     }
-  }, [query, filter, category, kind, tier, page]);
+  }, [query, matchBody, filter, category, kind, tier, page]);
 
   React.useEffect(() => {
     void load();
@@ -207,13 +249,8 @@ export default function KnowledgePage() {
           <Button
             variant="outline"
             onClick={() => {
-              void api.knowledgeCandidates().then(
-                (result) => {
-                  setCandidates(result.items);
-                  setShowCandidates((open) => !open);
-                },
-                (error: Error) => toast.error(`候选加载失败：${error.message}`),
-              );
+              setShowCandidates((open) => !open);
+              if (!showCandidates) void loadCandidates(1);
             }}
           >
             候选来源
@@ -249,7 +286,8 @@ export default function KnowledgePage() {
             <CardTitle>知识候选来源</CardTitle>
           </CardHeader>
           <CardContent className="grid max-h-72 gap-3 overflow-auto">
-            {candidates.length === 0 && (
+            {candidateLoading && <p className="text-sm">正在加载候选来源…</p>}
+            {!candidateLoading && candidates.length === 0 && (
               <p className="text-muted-foreground text-sm">从发现列表的“知识候选”操作收集来源。</p>
             )}
             {candidates.map((candidate) => (
@@ -265,6 +303,19 @@ export default function KnowledgePage() {
                   <span className="break-all font-mono text-muted-foreground text-xs">
                     SHA256 {candidate.source_hash}
                   </span>
+                  <div className="flex flex-wrap gap-2">
+                    {candidate.evidence_refs.map((ref) => (
+                      <Button
+                        key={ref.snapshot_id}
+                        variant="outline"
+                        size="sm"
+                        disabled={evidenceLoading}
+                        onClick={() => void previewCandidateEvidence(candidate.id, ref.snapshot_id)}
+                      >
+                        查看证据 #{ref.binding_id}
+                      </Button>
+                    ))}
+                  </div>
                   {candidate.task_id && (
                     <a className="underline" href={`/function/tasks/detail?id=${candidate.task_id}`}>
                       任务 #{candidate.task_id}
@@ -294,7 +345,62 @@ export default function KnowledgePage() {
                 </Button>
               </div>
             ))}
+            {evidenceLoading && <p className="text-sm">正在读取证据…</p>}
+            {candidateEvidence && (
+              <div className="grid gap-2 rounded-md border p-3 text-sm">
+                <div className="flex justify-between gap-2">
+                  <strong>候选 #{candidateEvidence.id} 的来源证据</strong>
+                  <Button variant="ghost" size="sm" onClick={() => setCandidateEvidence(null)}>
+                    关闭
+                  </Button>
+                </div>
+                <p className="break-all font-mono">
+                  {candidateEvidence.result.snapshot.method} {candidateEvidence.result.snapshot.url}
+                </p>
+                {(["request", "response"] as const).map((side) => {
+                  const preview = candidateEvidence.result[side];
+                  return (
+                    <details key={side} open className="rounded-md border p-2">
+                      <summary>
+                        {side === "request" ? "请求" : "响应"} · 正文 {preview.total} 字节
+                        {preview.truncated ? " · 仅显示前 8 KiB" : ""}
+                      </summary>
+                      <pre className="mt-2 max-h-48 overflow-auto whitespace-pre-wrap break-all text-xs">
+                        {side === "request"
+                          ? candidateEvidence.result.snapshot.req_head
+                          : candidateEvidence.result.snapshot.resp_head}
+                        {"\n\n"}
+                        {preview.binary ? "二进制正文" : preview.content || "无正文"}
+                      </pre>
+                    </details>
+                  );
+                })}
+              </div>
+            )}
           </CardContent>
+          <div className="flex items-center justify-between border-t px-5 py-3 text-sm">
+            <span>
+              共 {candidateTotal} 个候选 · 第 {candidatePage} 页
+            </span>
+            <div className="flex gap-2">
+              <Button
+                variant="outline"
+                size="sm"
+                disabled={candidatePage === 1 || candidateLoading}
+                onClick={() => void loadCandidates(candidatePage - 1)}
+              >
+                上一页
+              </Button>
+              <Button
+                variant="outline"
+                size="sm"
+                disabled={candidatePage * 50 >= candidateTotal || candidateLoading}
+                onClick={() => void loadCandidates(candidatePage + 1)}
+              >
+                下一页
+              </Button>
+            </div>
+          </div>
         </Card>
       )}
 
@@ -441,6 +547,17 @@ export default function KnowledgePage() {
               />
             </div>
           </CardHeader>
+          <label className="flex items-center gap-2 px-6 pb-3 text-sm">
+            <input
+              type="checkbox"
+              checked={matchBody}
+              onChange={(event) => {
+                setMatchBody(event.target.checked);
+                setPage(1);
+              }}
+            />
+            匹配正文
+          </label>
           <CardContent className="min-h-0 flex-1 overflow-auto">
             {loading ? (
               <p className="py-8 text-center text-muted-foreground text-sm">正在加载知识条目…</p>

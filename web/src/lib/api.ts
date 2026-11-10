@@ -103,6 +103,7 @@ import type {
   ToolStat,
   TrafficDetail,
   TrafficEvidenceRef,
+  TrafficEvidenceSnapshot,
   TrafficEvidenceRole,
   TrafficHost,
   TrafficResp,
@@ -577,6 +578,7 @@ export const api = {
   knowledge: (
     params: {
       q?: string;
+      match_body?: boolean;
       category?: string;
       kind?: string;
       tier?: string;
@@ -615,7 +617,14 @@ export const api = {
   importKnowledge: (items: KnowledgeInput[]) =>
     post<{ created: number; skipped: number }>("/knowledge/import", { items }),
   knowledgeHistory: (id: number) => get<KnowledgeHistory>(`/knowledge/${id}/history`),
-  knowledgeCandidates: () => get<{ items: KnowledgeCandidate[] }>("/knowledge/candidates"),
+  knowledgeCandidates: (page = 1) =>
+    get<{ items: KnowledgeCandidate[]; total: number; page: number; limit: number }>(
+      `/knowledge/candidates?page=${page}&limit=50`,
+    ),
+  knowledgeCandidateEvidence: (id: number, snapshotID: string) =>
+    get<{ snapshot: TrafficEvidenceSnapshot; request: EvidenceBodyPreview; response: EvidenceBodyPreview }>(
+      `/knowledge/candidates/${id}/evidence/${encodeURIComponent(snapshotID)}`,
+    ),
   collectKnowledgeCandidate: (findingID: string) =>
     post<KnowledgeCandidate>(`/exploration/findings/${findingID}/knowledge-candidate`, {}),
   promoteKnowledgeCandidate: (id: number, input: KnowledgeInput & { redacted: boolean }) =>
