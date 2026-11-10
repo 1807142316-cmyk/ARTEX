@@ -107,6 +107,17 @@ func TestKnowledgeCandidateHTTPCollectsReferencesAndPromotesRedactedDraft(t *tes
 	if status != http.StatusCreated || changed["id"] == candidate["id"] || changed["source_hash"] == candidate["source_hash"] {
 		t.Fatalf("changed source content did not create distinct candidate: status=%d body=%s", status, raw)
 	}
+	status, first, raw := do(http.MethodGet, "/api/knowledge/candidates?limit=1&page=1", nil, true)
+	if status != http.StatusOK || len(first["items"].([]any)) != 1 || first["page"] != float64(1) {
+		t.Fatalf("candidate first page unavailable: status=%d body=%s", status, raw)
+	}
+	status, second, raw := do(http.MethodGet, "/api/knowledge/candidates?limit=1&page=2", nil, true)
+	if status != http.StatusOK || len(second["items"].([]any)) != 1 || second["page"] != float64(2) || second["total"] != first["total"] {
+		t.Fatalf("candidate second page unavailable: status=%d body=%s", status, raw)
+	}
+	if first["items"].([]any)[0].(map[string]any)["id"] != changed["id"] || second["items"].([]any)[0].(map[string]any)["id"] != candidate["id"] {
+		t.Fatalf("candidate pages skipped or repeated sources: first=%v second=%v", first, second)
+	}
 }
 
 func TestKnowledgeCandidateEvidenceSurvivesSourceDetachAndGarbageCollection(t *testing.T) {

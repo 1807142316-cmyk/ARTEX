@@ -38,12 +38,14 @@ func (s *Server) knowledgeCandidates(w http.ResponseWriter, r *http.Request) {
 	if pg == nil {
 		return
 	}
-	items, err := pg.ListKnowledgeCandidates(0)
+	page := findingPaginationParam(r.URL.Query().Get("page"), 1, 0)
+	limit := findingPaginationParam(r.URL.Query().Get("limit"), 50, 100)
+	items, total, err := pg.ListKnowledgeCandidatesPage(0, limit, (page-1)*limit)
 	if err != nil {
 		writeKnowledgeErr(w, err)
 		return
 	}
-	writeJSON(w, http.StatusOK, map[string]any{"items": items})
+	writeJSON(w, http.StatusOK, map[string]any{"items": items, "total": total, "page": page, "limit": limit})
 }
 
 func (s *Server) knowledgeCandidateEvidence(w http.ResponseWriter, r *http.Request) {
