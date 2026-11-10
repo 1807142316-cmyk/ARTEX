@@ -1543,3 +1543,18 @@ CREATE TABLE IF NOT EXISTS knowledge_reviews (
     created_at TIMESTAMPTZ NOT NULL DEFAULT now()
 );
 CREATE INDEX IF NOT EXISTS idx_knowledge_reviews_entry ON knowledge_reviews(entry_id, version, id DESC);
+
+-- Source references retain domain identifiers and digests, never copied target evidence.
+CREATE TABLE IF NOT EXISTS knowledge_candidates (
+    id BIGSERIAL PRIMARY KEY,
+    finding_id BIGINT REFERENCES findings(id) ON DELETE SET NULL,
+    task_id BIGINT REFERENCES tasks(id) ON DELETE SET NULL,
+    source_identity TEXT NOT NULL,
+    source_version BIGINT NOT NULL,
+    source_hash TEXT NOT NULL,
+    evidence_refs JSONB NOT NULL DEFAULT '[]',
+    entry_id BIGINT REFERENCES knowledge_entries(id) ON DELETE SET NULL,
+    created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+    UNIQUE(source_identity,source_version,source_hash)
+);
+CREATE INDEX IF NOT EXISTS idx_knowledge_candidates_entry ON knowledge_candidates(entry_id);
