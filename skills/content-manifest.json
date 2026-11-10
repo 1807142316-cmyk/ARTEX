@@ -19,8 +19,8 @@
         },
         {
           "path": "scripts/run.py",
-          "bytes": 3138,
-          "sha256": "c46ceaf3bafad8cea60abd6d5d392270ce0a524060870d0f5e9850b971c6184e"
+          "bytes": 3030,
+          "sha256": "b3edd6bd063d3b63c20591e22682333f4a805fffe011b2cd4d14ca96e5f712b2"
         }
       ]
     },

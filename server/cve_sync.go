@@ -1,6 +1,7 @@
 package server
 
 import (
+	"archive/zip"
 	"context"
 	"crypto/sha256"
 	"database/sql"
@@ -14,6 +15,7 @@ import (
 	"net/url"
 	"os"
 	"path/filepath"
+	"regexp"
 	"strings"
 	"time"
 
@@ -140,6 +142,10 @@ func (c *cveSyncService) step() {
 	}
 	if finishErr := c.server.m.pg.FinishCVESync(ctx, run.ID, err); finishErr != nil {
 		log.Printf("[cve] finish sync: %v", finishErr)
+		return
+	}
+	if cleanupErr := c.pruneCache(ctx); cleanupErr != nil {
+		log.Printf("[cve] prune cache: %v", cleanupErr)
 	}
 }
 func (c *cveSyncService) execute(ctx context.Context, run *db.CVESyncRun) error {
@@ -172,6 +178,7 @@ func (c *cveSyncService) execute(ctx context.Context, run *db.CVESyncRun) error 
 			return err
 		}
 		if asset.SHA256 != "" && asset.SHA256 != hash {
+			_ = os.Remove(path)
 			return fmt.Errorf("CVE archive checksum changed for %s", asset.Name)
 		}
 		asset.SHA256 = hash
@@ -186,19 +193,31 @@ func (c *cveSyncService) execute(ctx context.Context, run *db.CVESyncRun) error 
 		if err = os.WriteFile(path+".manifest.json", manifest, 0600); err != nil {
 			return err
 		}
+		callbackFailed := false
+		assetRecords := 0
 		err = cve.WalkArchive(ctx, path, run.SourceVersion, func(record cve.Record) error {
+			assetRecords++
 			position++
 			if position <= run.Checkpoint {
 				return nil
 			}
 			batch = append(batch, db.CVERecord{ID: record.ID, State: record.State, DataVersion: record.DataVersion, Description: record.Description, Products: record.Products, References: record.References, Published: record.Published, Updated: record.Updated, SourceVersion: record.SourceVersion, ContentHash: record.ContentHash, Raw: record.Raw})
 			if len(batch) >= 250 {
-				return flush()
+				err := flush()
+				callbackFailed = err != nil
+				return err
 			}
 			return nil
 		})
 		if err != nil {
+			if !callbackFailed && ctx.Err() == nil {
+				_ = os.Remove(path)
+			}
 			return err
+		}
+		if assetRecords == 0 {
+			_ = os.Remove(path)
+			return errors.New("CVE release archive contains no records")
 		}
 		if err = flush(); err != nil {
 			return err
@@ -260,6 +279,9 @@ func (c *cveSyncService) prepare(ctx context.Context, run *db.CVESyncRun) error 
 	if baseline == nil {
 		return errors.New("CVE release has no baseline archive")
 	}
+	if release.Tag != status.SourceVersion && status.BaselineName == baseline.Name && status.LastSuccess != nil && delta == nil {
+		return errors.New("CVE release is incomplete: changed source version has no delta archive")
+	}
 	// Hourly deltas are cumulative only since the daily baseline. Reapply the new
 	// baseline on every baseline change, including arbitrarily long missed windows.
 	if status.BaselineName != baseline.Name || status.LastSuccess == nil {
@@ -276,15 +298,17 @@ func (c *cveSyncService) download(ctx context.Context, asset db.CVESyncAsset) (s
 	if err != nil || parsed.Host == "" || parsed.Scheme != "https" && parsed.Scheme != "http" {
 		return "", "", errors.New("invalid CVE asset URL")
 	}
-	digest := sha256.Sum256([]byte(asset.URL))
-	path := filepath.Join(c.dir, hex.EncodeToString(digest[:])+".zip")
+	path := c.cachePath(asset.URL)
 	if file, err := os.Open(path); err == nil {
-		defer file.Close()
 		hash := sha256.New()
-		if _, err = io.Copy(hash, file); err == nil {
+		_, err = io.Copy(hash, file)
+		_ = file.Close()
+		if err == nil && validateCVEZIP(path) == nil {
 			return path, hex.EncodeToString(hash.Sum(nil)), nil
 		}
-		return "", "", err
+		if err := os.Remove(path); err != nil {
+			return "", "", err
+		}
 	}
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, asset.URL, nil)
 	if err != nil {
@@ -315,8 +339,84 @@ func (c *cveSyncService) download(ctx context.Context, asset db.CVESyncAsset) (s
 	if written > 2<<30 {
 		return "", "", errors.New("CVE archive exceeds 2 GiB limit")
 	}
+	if err := validateCVEZIP(file.Name()); err != nil {
+		return "", "", err
+	}
 	if err = os.Rename(file.Name(), path); err != nil {
 		return "", "", err
 	}
 	return path, hex.EncodeToString(hash.Sum(nil)), nil
+}
+
+func validateCVEZIP(path string) error {
+	reader, err := zip.OpenReader(path)
+	if err != nil {
+		return err
+	}
+	defer reader.Close()
+	if len(reader.File) == 0 {
+		return errors.New("CVE release archive is empty")
+	}
+	return nil
+}
+
+func (c *cveSyncService) cachePath(assetURL string) string {
+	digest := sha256.Sum256([]byte(assetURL))
+	return filepath.Join(c.dir, hex.EncodeToString(digest[:])+".zip")
+}
+
+var cveCacheName = regexp.MustCompile(`^[a-f0-9]{64}\.zip$`)
+
+// Keep resumable jobs and the most recent successful content. Run metadata and
+// manifests remain as the historical provenance ledger after ZIP eviction.
+func (c *cveSyncService) pruneCache(ctx context.Context) error {
+	rows, err := c.server.m.pg.QueryContext(ctx, `SELECT assets FROM cve_sync_runs WHERE status IN ('queued','running') OR id=(SELECT max(id) FROM cve_sync_runs WHERE status='succeeded' AND jsonb_array_length(assets)>0)`)
+	if err != nil {
+		return err
+	}
+	protected := make(map[string]bool)
+	for rows.Next() {
+		var raw []byte
+		if err := rows.Scan(&raw); err != nil {
+			rows.Close()
+			return err
+		}
+		var assets []db.CVESyncAsset
+		if err := json.Unmarshal(raw, &assets); err != nil {
+			rows.Close()
+			return err
+		}
+		for _, asset := range assets {
+			protected[filepath.Base(c.cachePath(asset.URL))] = true
+		}
+	}
+	if err := rows.Err(); err != nil {
+		rows.Close()
+		return err
+	}
+	rows.Close()
+	entries, err := os.ReadDir(c.dir)
+	if os.IsNotExist(err) {
+		return nil
+	}
+	if err != nil {
+		return err
+	}
+	root, err := filepath.Abs(c.dir)
+	if err != nil {
+		return err
+	}
+	for _, entry := range entries {
+		if !entry.Type().IsRegular() || !cveCacheName.MatchString(entry.Name()) || protected[entry.Name()] {
+			continue
+		}
+		path := filepath.Join(root, entry.Name())
+		if filepath.Dir(path) != root {
+			return errors.New("CVE cache path escaped content directory")
+		}
+		if err := os.Remove(path); err != nil && !os.IsNotExist(err) {
+			return err
+		}
+	}
+	return nil
 }

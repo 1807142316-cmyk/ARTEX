@@ -14,10 +14,7 @@ import (
 )
 
 func TestFindingsHTTPFiltersPaginationAndEmptyResults(t *testing.T) {
-	m, err := NewManager(t.TempDir(), "")
-	if err != nil {
-		t.Skipf("postgres unavailable (%v) — skipping", err)
-	}
+	m := newParityTestManager(t)
 	defer m.Close()
 
 	s := New(context.Background(), m, t.TempDir(), t.TempDir(), t.TempDir())

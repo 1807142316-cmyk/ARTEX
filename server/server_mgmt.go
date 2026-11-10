@@ -1261,7 +1261,12 @@ func rewriteSkillFrontmatter(content []byte, mcps *[]string, description, licens
 		}
 		for i := 0; i < len(mapping.Content); i += 2 {
 			if mapping.Content[i].Value == key {
-				mapping.Content[i+1] = &encoded
+				original := mapping.Content[i+1]
+				encoded.Anchor = original.Anchor
+				encoded.HeadComment = original.HeadComment
+				encoded.LineComment = original.LineComment
+				encoded.FootComment = original.FootComment
+				*original = encoded
 				return nil
 			}
 		}
@@ -1286,6 +1291,10 @@ func rewriteSkillFrontmatter(content []byte, mcps *[]string, description, licens
 	encoded, err := yaml.Marshal(&document)
 	if err != nil {
 		return nil, err
+	}
+	var validated map[string]any
+	if err := yaml.Unmarshal(encoded, &validated); err != nil {
+		return nil, fmt.Errorf("rewritten SKILL.md metadata is invalid: %w", err)
 	}
 	result := append([]byte("---\n"), encoded...)
 	result = append(result, []byte("---\n")...)

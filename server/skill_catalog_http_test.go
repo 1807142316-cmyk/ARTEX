@@ -16,6 +16,7 @@ import (
 	"github.com/Autumn-27/artex/agent"
 	"github.com/Autumn-27/artex/db"
 	actool "github.com/Autumn-27/norma/tool"
+	"gopkg.in/yaml.v3"
 )
 
 func TestSkillCategoriesPreserveContentBindingsAndMeasureActualLoads(t *testing.T) {
@@ -76,7 +77,7 @@ func TestSkillCategoriesPreserveContentBindingsAndMeasureActualLoads(t *testing.
 	if len(catalog.Skills) != 1 || catalog.Skills[0].Category != "证据整理" || catalog.Skills[0].Calls != 0 {
 		t.Fatalf("categorized list: %s", list.Body)
 	}
-	md := "---\nname: " + name + "\ndescription: Inspect saved evidence\ncategory: 证据整理\nmetadata:\n  owner: local-team\n  labels: [offline, reproducible]\n---\nKeep this exact instruction body.\n"
+	md := "---\nname: " + name + "\ndescription: Inspect saved evidence\ncategory: &kind 证据整理\nmetadata:\n  original: *kind\n  owner: local-team\n  labels: [offline, reproducible]\n---\nKeep this exact instruction body.\n"
 	if got := request("PUT", "/api/skills/"+name+"/files/SKILL.md", map[string]string{"content": md}, true); got.Code != 200 {
 		t.Fatalf("write: %s", got.Body)
 	}
@@ -92,6 +93,20 @@ func TestSkillCategoriesPreserveContentBindingsAndMeasureActualLoads(t *testing.
 	}
 	if !strings.HasSuffix(content.Content, "Keep this exact instruction body.\n") || !strings.Contains(content.Content, "owner: local-team") || !strings.Contains(content.Content, "offline") {
 		t.Fatalf("metadata/body lost: %s", file.Body)
+	}
+	frontmatter, _, err := splitSkillFrontmatter([]byte(content.Content))
+	if err != nil {
+		t.Fatal(err)
+	}
+	var updatedMetadata struct {
+		Category string         `yaml:"category"`
+		Metadata map[string]any `yaml:"metadata"`
+	}
+	if err := yaml.Unmarshal(frontmatter, &updatedMetadata); err != nil {
+		t.Fatalf("category update produced invalid alias: %v\n%s", err, content.Content)
+	}
+	if updatedMetadata.Category != "报告整理" || updatedMetadata.Metadata["original"] != "报告整理" {
+		t.Fatalf("alias metadata no longer follows anchored field: %+v", updatedMetadata)
 	}
 	planner, err := m.pg.GetAgentByKey("planner")
 	if err != nil || planner == nil {

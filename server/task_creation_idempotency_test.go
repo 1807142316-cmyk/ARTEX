@@ -13,10 +13,7 @@ import (
 )
 
 func TestTaskCreationRequestCanBeSafelyRetried(t *testing.T) {
-	m, err := NewManager(t.TempDir(), "")
-	if err != nil {
-		t.Skipf("postgres unavailable (%v) — skipping", err)
-	}
+	m := newParityTestManager(t)
 	defer m.Close()
 
 	td := t.TempDir()
