@@ -25,7 +25,17 @@ web/next-env.d.ts
 *.swo
 
 # docs
-/docs/
+/docs/*
+!/docs/screenshot-parity-design.md
+!/docs/screenshot-parity-implementation.md
+!/docs/screenshot-parity-content-sources.md
+!/docs/screenshot-parity-acceptance.md
+!/docs/screenshot-parity-spec.md
+!/docs/agents/
+/docs/agents/*
+!/docs/agents/issue-tracker.md
+!/docs/agents/triage-labels.md
+!/docs/agents/domain.md
 
 # os
 .DS_Store
