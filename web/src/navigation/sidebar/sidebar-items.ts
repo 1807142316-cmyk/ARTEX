@@ -15,6 +15,7 @@ import {
   Network,
   Plug,
   Radio,
+  ScanSearch,
   ScrollText,
   Settings2,
   ShieldAlert,
@@ -65,24 +66,40 @@ export interface NavGroup {
 export const sidebarItems: NavGroup[] = [
   {
     id: 1,
-    label: "功能",
+    label: "工作台",
     items: [
       { id: "dashboard", title: "仪表盘", url: "/dashboard", icon: LayoutDashboard },
       { id: "chat", title: "对话", url: "/chat", icon: MessageSquare },
+    ],
+  },
+  {
+    id: 2,
+    label: "作战",
+    items: [
       { id: "tasks", title: "任务", url: "/function/tasks", icon: Target },
       { id: "findings", title: "发现", url: "/function/findings", icon: Bug },
-      { id: "knowledge", title: "武器库", url: "/knowledge", icon: BookOpen },
+      { id: "assets", title: "资产", url: "/function/assets", icon: Network },
+    ],
+  },
+  {
+    id: 3,
+    label: "流量与执行",
+    items: [
       { id: "traffic", title: "流量", url: "/function/traffic", icon: Activity },
       { id: "commands", title: "工具执行", url: "/function/commands", icon: Terminal },
       { id: "llm-records", title: "LLM 录制", url: "/function/llm-records", icon: Radio },
-      { id: "assets", title: "资产", url: "/function/assets", icon: Network },
       { id: "sync", title: "资产同步", url: "/function/sync", icon: FolderSync },
       { id: "workspace", title: "工作空间", url: "/function/workspace", icon: FolderOpen },
     ],
   },
   {
-    id: 2,
-    label: "系统",
+    id: 4,
+    label: "知识库",
+    items: [{ id: "knowledge", title: "武器库", url: "/knowledge", icon: BookOpen }],
+  },
+  {
+    id: 5,
+    label: "智能与运维",
     items: [
       { id: "llm", title: "LLM", url: "/system/llm", icon: Brain },
       { id: "agents", title: "Agent", url: "/system/agents", icon: Bot },
@@ -95,6 +112,13 @@ export const sidebarItems: NavGroup[] = [
       { id: "approvals", title: "审批记录", url: "/system/intercept/approvals", icon: ClipboardList },
       { id: "logs", title: "日志", url: "/system/logs", icon: ScrollText },
       { id: "settings", title: "系统配置", url: "/system/settings", icon: Settings2 },
+    ],
+  },
+  {
+    id: 6,
+    label: "情报",
+    items: [
+      { id: "scan-templates", title: "扫描模板", url: "/intelligence/templates", icon: ScanSearch },
     ],
   },
 ];

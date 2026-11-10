@@ -359,6 +359,27 @@ CREATE TABLE IF NOT EXISTS settings (
     updated_at TIMESTAMPTZ NOT NULL DEFAULT now()
 );
 
+-- Public CVE records are retained locally for offline search and source tracking.
+CREATE TABLE IF NOT EXISTS cve_records (
+    cve_id        TEXT PRIMARY KEY,
+    state         TEXT NOT NULL DEFAULT '',
+    data_version  TEXT NOT NULL DEFAULT '',
+    description   TEXT NOT NULL DEFAULT '',
+    products      JSONB NOT NULL DEFAULT '[]',
+    reference_urls JSONB NOT NULL DEFAULT '[]',
+    date_published TEXT NOT NULL DEFAULT '',
+    date_updated   TEXT NOT NULL DEFAULT '',
+    source_version TEXT NOT NULL DEFAULT '',
+    content_hash   TEXT NOT NULL,
+    raw_record     JSONB NOT NULL,
+    imported_at    TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+CREATE INDEX IF NOT EXISTS idx_cve_records_published ON cve_records(date_published DESC);
+CREATE INDEX IF NOT EXISTS idx_cve_records_products ON cve_records USING GIN(products);
+CREATE INDEX IF NOT EXISTS idx_cve_records_references ON cve_records USING GIN(reference_urls);
+CREATE INDEX IF NOT EXISTS idx_cve_records_search ON cve_records USING GIN
+    (to_tsvector('simple', cve_id || ' ' || description || ' ' || products::text));
+
 CREATE TABLE IF NOT EXISTS llm_profiles (
     id               BIGSERIAL PRIMARY KEY,
     name             TEXT NOT NULL UNIQUE,
@@ -944,6 +965,34 @@ CREATE TABLE IF NOT EXISTS tools (
     deferred    BOOLEAN NOT NULL DEFAULT false,
     updated_at  TIMESTAMPTZ NOT NULL DEFAULT now()
 );
+-- Validated passive scan-template catalog. Templates are cataloged and validated here,
+-- but this API does not execute template content.
+CREATE TABLE IF NOT EXISTS scan_templates (
+    template_id TEXT NOT NULL,
+    name TEXT NOT NULL,
+    author TEXT NOT NULL DEFAULT '',
+    severity TEXT NOT NULL,
+    description TEXT NOT NULL DEFAULT '',
+    tags JSONB NOT NULL DEFAULT '[]',
+    reference_urls JSONB NOT NULL DEFAULT '[]',
+    protocol TEXT NOT NULL,
+    source_url TEXT NOT NULL DEFAULT '',
+    source_version TEXT NOT NULL DEFAULT '',
+    license TEXT NOT NULL,
+    content_hash TEXT NOT NULL,
+    content TEXT NOT NULL,
+    active BOOLEAN NOT NULL DEFAULT true,
+    validated_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+    created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+    updated_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+    PRIMARY KEY (template_id, content_hash)
+);
+CREATE INDEX IF NOT EXISTS idx_scan_templates_catalog ON scan_templates(severity, protocol, template_id) WHERE active;
+CREATE UNIQUE INDEX IF NOT EXISTS idx_scan_templates_active ON scan_templates(template_id) WHERE active;
+CREATE INDEX IF NOT EXISTS idx_scan_templates_hash ON scan_templates(content_hash);
+DROP TRIGGER IF EXISTS trg_scan_templates_upd ON scan_templates;
+CREATE TRIGGER trg_scan_templates_upd BEFORE UPDATE ON scan_templates
+    FOR EACH ROW EXECUTE FUNCTION set_updated_at();
 DROP TRIGGER IF EXISTS trg_tools_upd ON tools;
 CREATE TRIGGER trg_tools_upd BEFORE UPDATE ON tools
     FOR EACH ROW EXECUTE FUNCTION set_updated_at();

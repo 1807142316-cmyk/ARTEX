@@ -163,6 +163,9 @@ func Open(dsn string) (*DB, error) {
 		if err := d.seedBuiltins(); err != nil {
 			return fmt.Errorf("seed builtins: %w", err)
 		}
+		if err := d.SeedScanTemplates(context.Background()); err != nil {
+			return fmt.Errorf("seed scan templates: %w", err)
+		}
 		return nil
 	})
 	if err != nil {

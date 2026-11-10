@@ -1,0 +1,17 @@
+id: artex-robots-index
+info:
+  name: Public robots.txt availability
+  author: ARTEX
+  severity: info
+  description: Records whether the public robots.txt resource is available.
+  reference:
+    - https://www.rfc-editor.org/rfc/rfc9309
+  tags: public-resource, robots
+http:
+  - method: GET
+    path:
+      - "{{BaseURL}}/robots.txt"
+    matchers:
+      - type: status
+        status:
+          - 200
