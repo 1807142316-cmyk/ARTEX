@@ -38,6 +38,14 @@ func TestKnowledgeHTTPRequiresVerifiedPublicationAndDeduplicatesRetrieval(t *tes
 		_ = json.Unmarshal(rec.Body.Bytes(), &result)
 		return rec.Code, result
 	}
+	status, baseline := do(http.MethodGet, "/api/knowledge?q=ARTEX-WEB-SQL-PARAMETERS", nil, true)
+	if status != http.StatusOK || baseline["total"].(float64) != 1 {
+		t.Fatalf("authored baseline missing: status=%d result=%v", status, baseline)
+	}
+	seeded := baseline["items"].([]any)[0].(map[string]any)
+	if seeded["verified"] != false || seeded["reviewed"] != false || seeded["published"] != false || len(seeded["body"].(string)) < 500 {
+		t.Fatalf("authored baseline has no substantive draft content or fabricated decisions: %v", seeded)
+	}
 	code := fmt.Sprintf("KB-%d", time.Now().UnixNano())
 	payload := map[string]any{
 		"code": code, "category": "web", "kind": "checklist", "tier": "low",
