@@ -364,7 +364,11 @@ export default function ScanTemplatesPage() {
                   <p className="break-all">
                     {match.matched ? "命中，需独立核验" : "未命中"} · {match.url}
                   </p>
-                  {match.finding_id && <p>候选发现 #{match.finding_id}（待审）</p>}
+                  {match.finding_id && (
+                    <a className="underline" href={`/function/findings/detail?id=${match.finding_id}`}>
+                      候选发现 #{match.finding_id}（待审）
+                    </a>
+                  )}
                   <details>
                     <summary className="cursor-pointer">请求与响应证据</summary>
                     <pre className="max-h-96 overflow-auto whitespace-pre-wrap text-xs">

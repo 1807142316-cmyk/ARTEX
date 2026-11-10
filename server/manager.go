@@ -1479,6 +1479,8 @@ func (m *Manager) SetTaskStatus(id, status string) error {
 // staged while PostgreSQL excludes asset/anchor writers. Both are restored on a
 // database failure and purged only after its commit.
 func (m *Manager) DeleteTask(id string, opts DeleteTaskOptions) (DeleteTaskResult, error) {
+	m.taskStateMu.Lock()
+	defer m.taskStateMu.Unlock()
 	result := DeleteTaskResult{Deleted: id}
 	n, err := strconv.ParseInt(id, 10, 64)
 	if err != nil {

@@ -114,8 +114,13 @@ func (d *DB) FinishScanTemplateRun(ctx context.Context, run ScanTemplateRun, mat
 		return nil
 	}
 	// Use the current FK value after task deletion instead of a stale run copy.
+	associated := run.TaskID != nil
 	if err = tx.QueryRowContext(ctx, `SELECT task_id FROM scan_template_runs WHERE id=$1`, run.ID).Scan(&run.TaskID); err != nil {
 		return err
+	}
+	if associated && run.TaskID == nil {
+		runErr = context.Canceled
+		matches = nil
 	}
 	if run.TaskID != nil {
 		var paused bool

@@ -29,6 +29,10 @@ func (s *Server) startScanTemplateRun(w http.ResponseWriter, r *http.Request) {
 		writeErr(w, 400, "invalid run JSON")
 		return
 	}
+	if s.m.pg.GetBool(settingProxyPool, false) && input.TaskID == "" {
+		writeErr(w, 400, "task_id is required while proxy pool is enabled")
+		return
+	}
 	var taskID *int64
 	// Registering the running context is serialized with task lifecycle commits,
 	// so a pause cannot land between validation and cancellation registration.
@@ -75,6 +79,7 @@ func (s *Server) startScanTemplateRun(w http.ResponseWriter, r *http.Request) {
 		writeErr(w, 400, err.Error())
 		return
 	}
+	proxyURL, caFile := s.taskProxyAddress(input.TaskID)
 	status := scantemplate.CheckEngine(r.Context())
 	if !status.Available {
 		writeErr(w, 503, status.Error)
@@ -105,7 +110,7 @@ func (s *Server) startScanTemplateRun(w http.ResponseWriter, r *http.Request) {
 		defer func() { <-s.templateRunSlots }()
 		defer cancel()
 		defer s.unregisterTaskTemplateRun(input.TaskID, run.ID)
-		matches, runErr := scantemplate.Run(ctx, run.TemplateContent, run.Target)
+		matches, runErr := scantemplate.RunWithProxy(ctx, run.TemplateContent, run.Target, proxyURL, caFile)
 		if input.TaskID != "" {
 			s.m.taskStateMu.Lock()
 			defer s.m.taskStateMu.Unlock()
