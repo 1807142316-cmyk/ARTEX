@@ -37,9 +37,9 @@ DNS resolver traffic, programs that ignore proxy variables, custom remote MCP
 services, and browser services hosted outside the application process are not
 transparently redirected. The UI explicitly states this scope. Changing pool
 settings while tools are already running requires pausing and continuing tasks
-to rebuild their process and browser environments. Shell clients may have their
-own `NO_PROXY` rules; those remain a limitation until process-level enforcement
-is added. No unrestricted-network isolation claim is made.
+to rebuild their process and browser environments. Pooled task Bash environments
+clear inherited `NO_PROXY` and `no_proxy` bypasses. Programs can still explicitly
+override their own proxy configuration. No network isolation claim is made.
 
 Standalone scanning must either supply an associated task gateway or be rejected
 when the pool is enabled. Linux runtime and real-browser execution still need
