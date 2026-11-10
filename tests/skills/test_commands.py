@@ -40,12 +40,13 @@ class SkillCommandTests(unittest.TestCase):
     def test_cve_review_retains_container_provenance_and_rejected_state(self):
         with tempfile.TemporaryDirectory() as directory:
             path = Path(directory) / "cve.json"
-            path.write_text(json.dumps({"cveMetadata": {"cveId": "CVE-2099-12345", "state": "REJECTED"}, "dataVersion": "5.1", "containers": {"cna": {"descriptions": [{"lang": "en", "value": "Withdrawn record"}], "references": [{"url": "https://vendor.test/advisory"}]}, "adp": [{"references": [{"url": "https://program.test/record"}]}]}}), encoding="utf-8")
+            path.write_text(json.dumps({"cveMetadata": {"cveId": "CVE-2099-12345", "state": "REJECTED"}, "dataVersion": "5.1", "containers": {"cna": {"affected": [{"vendor": "Acme", "product": "Portal", "platforms": ["linux"], "defaultStatus": "unaffected", "modules": ["payments"]}], "descriptions": [{"lang": "en", "value": "Withdrawn record"}], "references": [{"url": "https://vendor.test/advisory"}]}, "adp": [{"references": [{"url": "https://program.test/record"}]}]}}), encoding="utf-8")
             result = self.run_skill("cve-record-review", path)
             self.assertEqual(result.returncode, 0, result.stderr)
             report = json.loads(result.stdout)
             self.assertEqual(report["records"][0]["state"], "REJECTED")
             self.assertEqual(report["records"][0]["references"], [{"container": "cna", "url": "https://vendor.test/advisory"}, {"container": "adp:0", "url": "https://program.test/record"}])
+            self.assertEqual(report["records"][0]["affected"], [{"container": "cna", "vendor": "Acme", "product": "Portal", "platforms": ["linux"], "defaultStatus": "unaffected", "modules": ["payments"]}])
             self.assertFalse(report["records"][0]["confirms_vulnerability"])
             path.write_text('{"cveMetadata":{"cveId":"broken","state":"PUBLISHED"}}', encoding="utf-8")
             self.assertEqual(self.run_skill("cve-record-review", path).returncode, 2)
