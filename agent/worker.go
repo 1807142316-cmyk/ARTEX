@@ -52,17 +52,18 @@ type WebSearchOpts struct {
 }
 
 type Worker struct {
-	findingRecorder FindingRecorder
-	prov            llm.Provider
-	model           string
-	workDir         string
-	proxyAddr       string
-	proxyCACert     string            // recording proxy's CA cert path (for WebFetch HTTPS verify)
-	webSearch       WebSearchOpts     // web_search tool backend selection (off by default)
-	tx              *transcript.Store // raw LLM conversation persistence (nil = off)
-	window          int               // context window in tokens (for compaction)
-	windowFn        func() int        // optional dynamic task-chain minimum
-	maxTurns        int               // max agent turns per run (0 = unlimited)
+	findingRecorder  FindingRecorder
+	prov             llm.Provider
+	model            string
+	workDir          string
+	proxyAddr        string
+	proxyCACert      string // recording proxy's CA cert path (for WebFetch HTTPS verify)
+	clearProxyBypass bool
+	webSearch        WebSearchOpts     // web_search tool backend selection (off by default)
+	tx               *transcript.Store // raw LLM conversation persistence (nil = off)
+	window           int               // context window in tokens (for compaction)
+	windowFn         func() int        // optional dynamic task-chain minimum
+	maxTurns         int               // max agent turns per run (0 = unlimited)
 	// runTimeout is the wall-clock budget for the main exploration of one intent
 	// (0 = unlimited). When it fires, the run is cut and a settlement round is
 	// forced so already-identified facts get written back instead of being lost.
@@ -186,7 +187,8 @@ func (w *Worker) compactionWindow() int {
 // SetProxy configures the recording proxy address that workers route target
 // traffic through, plus the CA cert path WebFetch trusts to verify HTTPS through
 // that MITM proxy. Empty addr disables the hint.
-func (w *Worker) SetProxy(addr, caCert string) { w.proxyAddr, w.proxyCACert = addr, caCert }
+func (w *Worker) SetProxy(addr, caCert string)         { w.proxyAddr, w.proxyCACert = addr, caCert }
+func (w *Worker) SetProxyBypassDisabled(disabled bool) { w.clearProxyBypass = disabled }
 
 // SetWebSearch selects the web_search backend for this worker (off by default).
 func (w *Worker) SetWebSearch(o WebSearchOpts) { w.webSearch = o }
@@ -219,6 +221,14 @@ func proxyEnv(proxyAddr, caCert string) []string {
 			"GIT_SSL_CAINFO="+caCert,
 			"NODE_EXTRA_CA_CERTS="+caCert,
 		)
+	}
+	return env
+}
+
+func taskProxyEnv(addr, cert string, clearBypass bool) []string {
+	env := proxyEnv(addr, cert)
+	if clearBypass && addr != "" {
+		env = append(env, "NO_PROXY=", "no_proxy=")
 	}
 	return env
 }
@@ -450,7 +460,7 @@ func (w *Worker) execute(ctx context.Context, name string, taskID int64, as *db.
 		DeepSeekSearchModel:   w.webSearch.DeepSeekModel,
 		WebSearchProxy:        w.webSearch.Proxy,
 		// Bash 子命令的 HTTP 默认走记录代理 + 信任其 CA（工具无需 -x/-k）。
-		BashEnv:    proxyEnv(w.proxyAddr, w.proxyCACert),
+		BashEnv:    taskProxyEnv(w.proxyAddr, w.proxyCACert, w.clearProxyBypass),
 		WorkingDir: runDir,
 		MaxTurns:   w.maxTurns, // 0 = unlimited (configurable in agent management)
 		// 墙钟预算,轮边界判,不打断半路;0 = 不限。有任务级 deadline 时夹逼到 min(自身预算,

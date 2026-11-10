@@ -1577,3 +1577,34 @@ CREATE TABLE IF NOT EXISTS knowledge_candidates (
 );
 CREATE INDEX IF NOT EXISTS idx_knowledge_candidates_entry ON knowledge_candidates(entry_id);
 CREATE INDEX IF NOT EXISTS idx_knowledge_candidates_evidence_refs ON knowledge_candidates USING GIN(evidence_refs);
+
+-- Proxy URLs are encrypted with the installation key; list responses contain only address.
+CREATE TABLE IF NOT EXISTS proxy_endpoints (
+ id BIGSERIAL PRIMARY KEY,
+ name TEXT NOT NULL,
+ address TEXT NOT NULL,
+ sealed_url TEXT NOT NULL,
+ enabled BOOLEAN NOT NULL DEFAULT true,
+ check_url TEXT NOT NULL,
+ health TEXT NOT NULL DEFAULT 'unchecked' CHECK(health IN ('unchecked','healthy','unhealthy')),
+ exit_ip TEXT NOT NULL DEFAULT '',
+ last_error TEXT NOT NULL DEFAULT '',
+ checked_at TIMESTAMPTZ
+);
+CREATE TABLE IF NOT EXISTS task_egress_leases (
+ task_id BIGINT PRIMARY KEY REFERENCES tasks(id) ON DELETE CASCADE,
+ proxy_id BIGINT REFERENCES proxy_endpoints(id) ON DELETE RESTRICT,
+ policy TEXT NOT NULL DEFAULT 'pause' CHECK(policy IN ('pause','failover','direct')),
+ state TEXT NOT NULL CHECK(state IN ('active','paused','direct')),
+ exit_ip TEXT NOT NULL DEFAULT '',
+ updated_at TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+CREATE INDEX IF NOT EXISTS idx_task_egress_proxy ON task_egress_leases(proxy_id,state);
+CREATE TABLE IF NOT EXISTS task_egress_events (
+ id BIGSERIAL PRIMARY KEY,
+ task_id BIGINT NOT NULL REFERENCES tasks(id) ON DELETE CASCADE,
+ kind TEXT NOT NULL,
+ message TEXT NOT NULL,
+ created_at TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+CREATE INDEX IF NOT EXISTS idx_task_egress_events_task ON task_egress_events(task_id,id DESC);
