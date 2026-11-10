@@ -28,6 +28,28 @@ type KnowledgeCandidate struct {
 
 const knowledgeCandidateColumns = `id,finding_id,task_id,source_identity,source_version,source_hash,evidence_refs,entry_id,created_at`
 
+// WithKnowledgeCandidateEvidence keeps the shared evidence lock while resolving
+// retained source material, even when the original finding/binding was removed.
+func (d *DB) WithKnowledgeCandidateEvidence(ctx context.Context, candidateID int64, snapshotID string, read func(TrafficEvidenceSnapshot) error) error {
+	return d.WithEvidenceTx(ctx, func(tx *sql.Tx) error {
+		var raw []byte
+		err := tx.QueryRow(`SELECT to_jsonb(s) FROM traffic_evidence_snapshots s
+JOIN knowledge_candidates c ON c.id=$1 AND c.evidence_refs @> jsonb_build_array(jsonb_build_object('snapshot_id',s.id))
+WHERE s.id=$2`, candidateID, snapshotID).Scan(&raw)
+		if err == sql.ErrNoRows {
+			return ErrEvidenceNotFound
+		}
+		if err != nil {
+			return err
+		}
+		var snapshot TrafficEvidenceSnapshot
+		if err := json.Unmarshal(raw, &snapshot); err != nil {
+			return err
+		}
+		return read(snapshot)
+	})
+}
+
 func scanKnowledgeCandidate(row interface{ Scan(...any) error }) (*KnowledgeCandidate, error) {
 	var c KnowledgeCandidate
 	var raw []byte

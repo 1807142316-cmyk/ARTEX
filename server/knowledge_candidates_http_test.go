@@ -3,14 +3,18 @@ package server
 import (
 	"bytes"
 	"context"
+	"crypto/sha256"
 	"database/sql"
 	"encoding/json"
 	"fmt"
 	"net/http"
 	"net/http/httptest"
+	"os"
+	"path/filepath"
 	"strconv"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/Autumn-27/artex/db"
 )
@@ -102,5 +106,92 @@ func TestKnowledgeCandidateHTTPCollectsReferencesAndPromotesRedactedDraft(t *tes
 	status, changed, raw := do(http.MethodPost, path, nil, true)
 	if status != http.StatusCreated || changed["id"] == candidate["id"] || changed["source_hash"] == candidate["source_hash"] {
 		t.Fatalf("changed source content did not create distinct candidate: status=%d body=%s", status, raw)
+	}
+}
+
+func TestKnowledgeCandidateEvidenceSurvivesSourceDetachAndGarbageCollection(t *testing.T) {
+	m := newParityTestManager(t)
+	defer m.Close()
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	s := New(ctx, m, t.TempDir(), t.TempDir(), t.TempDir())
+	defer func() { cancel(); s.archiveWG.Wait(); <-s.side.done }()
+	token, _ := signJWT(s.jwtKey)
+	handler := s.Handler()
+	request := func(method, path string, body any, authenticated bool) *httptest.ResponseRecorder {
+		raw, _ := json.Marshal(body)
+		r := httptest.NewRequest(method, path, bytes.NewReader(raw))
+		if authenticated {
+			r.Header.Set("Authorization", "Bearer "+token)
+		}
+		w := httptest.NewRecorder()
+		handler.ServeHTTP(w, r)
+		return w
+	}
+	task, err := m.CreateTask("candidate evidence retention", "retain referenced evidence", nil, 0, 0)
+	if err != nil {
+		t.Fatal(err)
+	}
+	taskID, _ := strconv.ParseInt(task.ID, 10, 64)
+	findingID, err := m.pg.AddFinding(taskID, 0, "configuration", "source", "low", "summary", "private detail", "test", nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	reqBody, respBody := []byte("request provenance"), []byte("response provenance")
+	reqHash, respHash := fmt.Sprintf("%x", sha256.Sum256(reqBody)), fmt.Sprintf("%x", sha256.Sum256(respBody))
+	snapshot := db.TrafficEvidenceSnapshot{SourceTrafficID: "candidate-retention", URL: "https://source.test/", Method: "GET", Status: 200, ReqHash: reqHash, RespHash: respHash, ReqLen: int64(len(reqBody)), RespLen: int64(len(respBody))}
+	snapshot.ID = db.TrafficSnapshotID(snapshot)
+	for hash, body := range map[string][]byte{reqHash: reqBody, respHash: respBody} {
+		path := filepath.Join(s.evidenceStore().Dir, "blobs", hash[:2], hash+".bin")
+		if err := os.MkdirAll(filepath.Dir(path), 0700); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(path, body, 0600); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if err := m.pg.WithEvidenceTx(ctx, func(tx *sql.Tx) error {
+		return db.AddFindingTrafficTx(tx, findingID, []db.PreparedTrafficEvidence{{Ref: db.TrafficRef{TrafficID: "candidate-retention", Role: "verification"}, Snapshot: snapshot}})
+	}); err != nil {
+		t.Fatal(err)
+	}
+	collected := request("POST", fmt.Sprintf("/api/exploration/findings/%d/knowledge-candidate", findingID), nil, true)
+	var candidate db.KnowledgeCandidate
+	if err := json.Unmarshal(collected.Body.Bytes(), &candidate); err != nil || collected.Code != 201 {
+		t.Fatalf("collect=%d %s", collected.Code, collected.Body.String())
+	}
+	t.Cleanup(func() {
+		_, _ = m.pg.Exec(`DELETE FROM knowledge_candidates WHERE id=$1`, candidate.ID)
+		_, _ = m.pg.DeleteFinding(findingID)
+		_ = m.pg.DeleteTask(taskID)
+	})
+	listing := request("GET", fmt.Sprintf("/api/exploration/findings/%d/traffic", findingID), nil, true)
+	var traffic db.FindingTraffic
+	if err := json.Unmarshal(listing.Body.Bytes(), &traffic); err != nil || len(traffic.Bindings) != 1 {
+		t.Fatalf("bindings=%s", listing.Body.String())
+	}
+	detached := request("DELETE", fmt.Sprintf("/api/exploration/findings/%d/traffic/%d", findingID, traffic.Bindings[0].ID), map[string]any{"version": traffic.Version}, true)
+	if detached.Code != 200 {
+		t.Fatalf("detach=%d %s", detached.Code, detached.Body.String())
+	}
+	if _, err := m.pg.DeleteFinding(findingID); err != nil {
+		t.Fatal(err)
+	}
+	if err := m.pg.DeleteTask(taskID); err != nil {
+		t.Fatal(err)
+	}
+	if err := s.evidenceStore().Collect(ctx, time.Now().Add(25*time.Hour)); err != nil {
+		t.Fatal(err)
+	}
+	if err := s.evidenceStore().Collect(ctx, time.Now().Add(50*time.Hour)); err != nil {
+		t.Fatal(err)
+	}
+	path := fmt.Sprintf("/api/knowledge/candidates/%d/evidence/%s", candidate.ID, snapshot.ID)
+	if got := request("GET", path, nil, false); got.Code != 401 {
+		t.Fatalf("unauthenticated evidence=%d", got.Code)
+	}
+	got := request("GET", path, nil, true)
+	if got.Code != 200 || !strings.Contains(got.Body.String(), "request provenance") || !strings.Contains(got.Body.String(), "response provenance") {
+		t.Fatalf("candidate evidence lost after GC=%d %s", got.Code, got.Body.String())
 	}
 }

@@ -1558,3 +1558,4 @@ CREATE TABLE IF NOT EXISTS knowledge_candidates (
     UNIQUE(source_identity,source_version,source_hash)
 );
 CREATE INDEX IF NOT EXISTS idx_knowledge_candidates_entry ON knowledge_candidates(entry_id);
+CREATE INDEX IF NOT EXISTS idx_knowledge_candidates_evidence_refs ON knowledge_candidates USING GIN(evidence_refs);
