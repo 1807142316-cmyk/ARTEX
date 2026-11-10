@@ -889,20 +889,35 @@ func (m *Manager) CreateTask(description, goal string, llmProfileID *int64, time
 }
 
 func (m *Manager) CreateTaskWithOptions(description, goal string, opts pgdb.TaskCreateOptions) (*Task, error) {
+	t, _, err := m.createTaskWithReplay(description, goal, opts)
+	return t, err
+}
+
+func (m *Manager) createTaskWithReplay(description, goal string, opts pgdb.TaskCreateOptions) (*Task, bool, error) {
+	m.taskStateMu.Lock()
+	defer m.taskStateMu.Unlock()
 	if len(opts.CompanyIDs) > 0 {
 		m.companyMu.Lock()
 		defer m.companyMu.Unlock()
 	}
 	pt, err := m.pg.CreateTaskWithOptions(description, goal, opts)
 	if err != nil {
-		return nil, err
+		return nil, false, err
+	}
+	if pt.IdempotentReplay {
+		m.mu.RLock()
+		existing := m.tasks[strconv.FormatInt(pt.ID, 10)]
+		m.mu.RUnlock()
+		if existing != nil {
+			return existing, true, nil
+		}
 	}
 	t := taskFromPG(pt, m.pg.Exploration(pt.ExplorationID), m.interceptor)
 	m.mu.Lock()
 	m.tasks[t.ID] = t
 	m.active = t.ID
 	m.mu.Unlock()
-	return t, nil
+	return t, pt.IdempotentReplay, nil
 }
 
 // RenameTaskCategory persists a category name and refreshes every live task DTO

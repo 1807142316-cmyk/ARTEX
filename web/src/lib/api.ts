@@ -79,6 +79,7 @@ import type {
   SSProject,
   SSTask,
   Stats,
+  SystemMetrics,
   Task,
   TaskArchive,
   TaskArchivePage,
@@ -198,8 +199,12 @@ export function sseUrl(path: string): string {
 }
 
 const get = <T>(p: string) => http<T>(p);
-const post = <T>(p: string, body?: unknown) =>
-  http<T>(p, { method: "POST", body: body ? JSON.stringify(body) : undefined });
+const post = <T>(p: string, body?: unknown, idempotencyKey?: string) =>
+  http<T>(p, {
+    method: "POST",
+    body: body ? JSON.stringify(body) : undefined,
+    headers: idempotencyKey ? { "Idempotency-Key": idempotencyKey } : undefined,
+  });
 const put = <T>(p: string, body?: unknown) =>
   http<T>(p, { method: "PUT", body: body ? JSON.stringify(body) : undefined });
 const patch = <T>(p: string, body?: unknown) =>
@@ -247,34 +252,41 @@ export const api = {
   tasks: () =>
     get<{ tasks: Task[]; active: string }>("/tasks").then((r) => ({ tasks: arr(r.tasks), active: r.active ?? "" })),
   task: (id: string) => get<Task>(`/tasks/${encodeURIComponent(id)}`),
-  createTask: (input: {
-    name?: string;
-    categoryId?: number;
-    description: string;
-    goal: string;
-    llmProfileIds?: number[];
-    sourceTaskIds?: string[];
-    companyIds?: number[];
-    timeoutSeconds?: number;
-    seedFirstIntent?: boolean;
-    planHeartbeatSeconds?: number;
-    coverageEnabled?: boolean;
-    interceptRules?: AssetInterceptRuleInput[];
-  }) =>
-    post<Task>("/tasks", {
-      name: input.name ?? "",
-      category_id: input.categoryId ?? null,
-      description: input.description,
-      goal: input.goal,
-      llm_profile_ids: input.llmProfileIds ?? [],
-      source_task_ids: input.sourceTaskIds ?? [],
-      company_ids: input.companyIds ?? [],
-      timeout_seconds: input.timeoutSeconds ?? 0,
-      seed_first_intent: input.seedFirstIntent ?? false,
-      plan_heartbeat_seconds: input.planHeartbeatSeconds ?? 0, // 0 = 后端归一到默认 600(10min)
-      coverage_enabled: input.coverageEnabled ?? true, // 默认开;false=关闭资产覆盖度功能
-      intercept_rules: input.interceptRules ?? [], // 任务级资产拦截规则
-    }),
+  createTask: (
+    input: {
+      name?: string;
+      categoryId?: number;
+      description: string;
+      goal: string;
+      llmProfileIds?: number[];
+      sourceTaskIds?: string[];
+      companyIds?: number[];
+      timeoutSeconds?: number;
+      seedFirstIntent?: boolean;
+      planHeartbeatSeconds?: number;
+      coverageEnabled?: boolean;
+      interceptRules?: AssetInterceptRuleInput[];
+    },
+    options?: { idempotencyKey?: string },
+  ) =>
+    post<Task>(
+      "/tasks",
+      {
+        name: input.name ?? "",
+        category_id: input.categoryId ?? null,
+        description: input.description,
+        goal: input.goal,
+        llm_profile_ids: input.llmProfileIds ?? [],
+        source_task_ids: input.sourceTaskIds ?? [],
+        company_ids: input.companyIds ?? [],
+        timeout_seconds: input.timeoutSeconds ?? 0,
+        seed_first_intent: input.seedFirstIntent ?? false,
+        plan_heartbeat_seconds: input.planHeartbeatSeconds ?? 0, // 0 = 后端归一到默认 600(10min)
+        coverage_enabled: input.coverageEnabled ?? true, // 默认开;false=关闭资产覆盖度功能
+        intercept_rules: input.interceptRules ?? [], // 任务级资产拦截规则
+      },
+      options?.idempotencyKey,
+    ),
   taskCategories: () => get<{ categories: TaskCategory[] }>("/task-categories").then((r) => arr(r.categories)),
   updateTask: (id: string, input: { name?: string; pinned?: boolean }) => patch<Task>(`/tasks/${id}`, input),
   renameTask: (id: string, name: string) => patch<Task>(`/tasks/${id}`, { name }),
@@ -366,6 +378,7 @@ export const api = {
   setActive: (id: string) => post<{ active: string }>("/active", { id }),
   // ---- stats ----
   stats: (task?: string) => get<Stats>(`/stats${tq(task)}`),
+  systemMetrics: () => get<SystemMetrics>("/system/metrics"),
   // 资产测试覆盖度(粗估，供参考)：范围内资产被 fact 碰过的占比 + 按类型的 总数/已测。
   taskCoverage: (id: string) =>
     get<{
@@ -825,8 +838,7 @@ export const api = {
   // 渠道是多实例资源（同一类型可配多个机器人、各有过滤规则），因此独立成组，
   // 不塞进扁平的 settings 键值里。
   notifyMeta: () => get<NotificationMeta>(`/notify/meta`),
-  notifyChannels: () =>
-    get<{ channels: NotificationChannel[] }>(`/notify/channels`).then((r) => arr(r.channels)),
+  notifyChannels: () => get<{ channels: NotificationChannel[] }>(`/notify/channels`).then((r) => arr(r.channels)),
   notifyCreateChannel: (payload: {
     name: string;
     kind: string;

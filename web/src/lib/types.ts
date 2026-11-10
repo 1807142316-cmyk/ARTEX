@@ -39,6 +39,8 @@ export interface Task {
   archive_blocked_by_task_id?: string; // live direct dependent that must be archived first
   company_ids?: number[]; // associated company scopes; current company assets join the task at creation
   coverage_enabled?: boolean; // 资产覆盖度功能开关(创建时定,默认开)；false=不计算/不展示覆盖度
+  timeout_seconds?: number;
+  plan_heartbeat_seconds?: number;
 }
 
 export interface TaskCategory {
@@ -1240,8 +1242,18 @@ export interface Tool {
 }
 
 // ---- Stats ----
+export interface SystemMetrics {
+  scope: "container" | "process" | "unavailable";
+  source: string;
+  sampled_at: string;
+  cpu: { unit: "percent"; percent: number | null; limit_cores: number | null; window_seconds: number };
+  memory: { unit: "bytes"; used: number | null; limit: number | null };
+  error?: string;
+}
+
 export interface Stats {
   assets: number;
+  traffic?: number;
   engine_mode: EngineMode;
   llm_configured: boolean;
   roe_enabled: boolean;
