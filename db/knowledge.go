@@ -74,6 +74,7 @@ type KnowledgePatch struct {
 
 type KnowledgeFilter struct {
 	Query     string
+	MatchBody *bool
 	Category  string
 	Kind      string
 	Tier      string
@@ -243,15 +244,15 @@ func (d *DB) ListKnowledgeEntries(filter KnowledgeFilter) ([]*KnowledgeEntry, in
 		filter.Offset = 0
 	}
 	query := strings.TrimSpace(filter.Query)
-	where := ` WHERE ($1='' OR e.code ILIKE '%'||$1||'%' OR e.summary ILIKE '%'||$1||'%' OR e.body ILIKE '%'||$1||'%' OR e.category ILIKE '%'||$1||'%' OR e.kind ILIKE '%'||$1||'%')
+	where := ` WHERE ($1='' OR e.code ILIKE '%'||$1||'%' OR e.summary ILIKE '%'||$1||'%' OR (COALESCE($7::boolean,true) AND e.body ILIKE '%'||$1||'%') OR e.category ILIKE '%'||$1||'%' OR e.kind ILIKE '%'||$1||'%')
 AND ($2='' OR e.category=$2) AND ($3='' OR e.kind=$3) AND ($4='' OR e.tier=$4)
 AND ($5::boolean IS NULL OR (e.published AND e.revoked_at IS NULL AND COALESCE(a.approved AND a.redacted,false))=$5) AND ($6::boolean IS NULL OR COALESCE(v.result='passed',false)=$6)`
 	var total int
 	countSQL := `SELECT count(*) ` + knowledgeSelect[strings.Index(knowledgeSelect, "FROM knowledge_entries"):]
-	if err := d.QueryRow(countSQL+where, query, filter.Category, filter.Kind, filter.Tier, filter.Published, filter.Verified).Scan(&total); err != nil {
+	if err := d.QueryRow(countSQL+where, query, filter.Category, filter.Kind, filter.Tier, filter.Published, filter.Verified, filter.MatchBody).Scan(&total); err != nil {
 		return nil, 0, err
 	}
-	rows, err := d.Query(knowledgeSelect+where+` ORDER BY e.updated_at DESC,e.id DESC LIMIT $7 OFFSET $8`, query, filter.Category, filter.Kind, filter.Tier, filter.Published, filter.Verified, filter.Limit, filter.Offset)
+	rows, err := d.Query(knowledgeSelect+where+` ORDER BY e.updated_at DESC,e.id DESC LIMIT $8 OFFSET $9`, query, filter.Category, filter.Kind, filter.Tier, filter.Published, filter.Verified, filter.MatchBody, filter.Limit, filter.Offset)
 	if err != nil {
 		return nil, 0, err
 	}

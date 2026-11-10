@@ -577,6 +577,7 @@ export const api = {
   knowledge: (
     params: {
       q?: string;
+      match_body?: boolean;
       category?: string;
       kind?: string;
       tier?: string;

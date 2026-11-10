@@ -28,6 +28,7 @@ const emptyDraft = {
 export default function KnowledgePage() {
   const [items, setItems] = React.useState<KnowledgeEntry[]>([]);
   const [query, setQuery] = React.useState("");
+  const [matchBody, setMatchBody] = React.useState(true);
   const [filter, setFilter] = React.useState("all");
   const [loading, setLoading] = React.useState(true);
   const [selected, setSelected] = React.useState<KnowledgeEntry | null>(null);
@@ -60,6 +61,7 @@ export default function KnowledgePage() {
     try {
       const result = await api.knowledge({
         q: query,
+        match_body: matchBody,
         category,
         kind,
         tier,
@@ -79,7 +81,7 @@ export default function KnowledgePage() {
     } finally {
       if (sequence === loadSequence.current) setLoading(false);
     }
-  }, [query, filter, category, kind, tier, page]);
+  }, [query, matchBody, filter, category, kind, tier, page]);
 
   React.useEffect(() => {
     void load();
@@ -441,6 +443,17 @@ export default function KnowledgePage() {
               />
             </div>
           </CardHeader>
+          <label className="flex items-center gap-2 px-6 pb-3 text-sm">
+            <input
+              type="checkbox"
+              checked={matchBody}
+              onChange={(event) => {
+                setMatchBody(event.target.checked);
+                setPage(1);
+              }}
+            />
+            匹配正文
+          </label>
           <CardContent className="min-h-0 flex-1 overflow-auto">
             {loading ? (
               <p className="py-8 text-center text-muted-foreground text-sm">正在加载知识条目…</p>

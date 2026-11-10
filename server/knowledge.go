@@ -84,6 +84,10 @@ func (s *Server) knowledgeList(w http.ResponseWriter, r *http.Request) {
 	page := findingPaginationParam(q.Get("page"), 1, 0)
 	limit := findingPaginationParam(q.Get("limit"), 50, 200)
 	filter := db.KnowledgeFilter{Query: strings.TrimSpace(q.Get("q")), Category: strings.TrimSpace(q.Get("category")), Kind: strings.TrimSpace(q.Get("kind")), Tier: strings.TrimSpace(q.Get("tier")), Limit: limit, Offset: (page - 1) * limit}
+	if q.Has("match_body") {
+		v := q.Get("match_body") == "true"
+		filter.MatchBody = &v
+	}
 	if q.Has("verified") {
 		v := q.Get("verified") == "true"
 		filter.Verified = &v
