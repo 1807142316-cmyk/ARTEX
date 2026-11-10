@@ -359,6 +359,27 @@ CREATE TABLE IF NOT EXISTS settings (
     updated_at TIMESTAMPTZ NOT NULL DEFAULT now()
 );
 
+-- Public CVE records are retained locally for offline search and source tracking.
+CREATE TABLE IF NOT EXISTS cve_records (
+    cve_id        TEXT PRIMARY KEY,
+    state         TEXT NOT NULL DEFAULT '',
+    data_version  TEXT NOT NULL DEFAULT '',
+    description   TEXT NOT NULL DEFAULT '',
+    products      JSONB NOT NULL DEFAULT '[]',
+    reference_urls JSONB NOT NULL DEFAULT '[]',
+    date_published TEXT NOT NULL DEFAULT '',
+    date_updated   TEXT NOT NULL DEFAULT '',
+    source_version TEXT NOT NULL DEFAULT '',
+    content_hash   TEXT NOT NULL,
+    raw_record     JSONB NOT NULL,
+    imported_at    TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+CREATE INDEX IF NOT EXISTS idx_cve_records_published ON cve_records(date_published DESC);
+CREATE INDEX IF NOT EXISTS idx_cve_records_products ON cve_records USING GIN(products);
+CREATE INDEX IF NOT EXISTS idx_cve_records_references ON cve_records USING GIN(reference_urls);
+CREATE INDEX IF NOT EXISTS idx_cve_records_search ON cve_records USING GIN
+    (to_tsvector('simple', cve_id || ' ' || description || ' ' || products::text));
+
 CREATE TABLE IF NOT EXISTS llm_profiles (
     id               BIGSERIAL PRIMARY KEY,
     name             TEXT NOT NULL UNIQUE,

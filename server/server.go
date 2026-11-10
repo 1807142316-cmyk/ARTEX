@@ -752,6 +752,11 @@ func (s *Server) Handler() http.Handler {
 	mux.HandleFunc("POST /api/companies/{id}/scope", s.addCompanyScope)
 	mux.HandleFunc("POST /api/companies/reattribute", s.reattribute)
 
+	// CVE metadata is imported and searched locally; requests require the standard JWT middleware.
+	mux.HandleFunc("POST /api/cve/import", s.importCVERecords)
+	mux.HandleFunc("GET /api/cve", s.searchCVERecords)
+	mux.HandleFunc("GET /api/cve/stats", s.cveRecordStats)
+
 	mux.HandleFunc("GET /api/exploration/frontier", s.frontier)
 	mux.HandleFunc("GET /api/exploration/findings", s.findings)
 	mux.HandleFunc("GET /api/exploration/findings/groups", s.findingGroups)
