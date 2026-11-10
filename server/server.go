@@ -117,12 +117,13 @@ type Server struct {
 
 	// Cold task archives run through one persistent FIFO worker. The buffered wake
 	// channel coalesces enqueue bursts; the database remains the source of truth.
-	archiveWake chan struct{}
-	archiveWG   sync.WaitGroup
-	side        *sideQuestionState
-	cveSync     *cveSyncService
-	metrics     resourceSampler
-	proxyPool   *proxyPoolService
+	archiveWake      chan struct{}
+	archiveWG        sync.WaitGroup
+	side             *sideQuestionState
+	cveSync          *cveSyncService
+	metrics          resourceSampler
+	templateRunSlots chan struct{}
+	proxyPool        *proxyPoolService
 }
 
 // provEntry is a cached provider + its config for one LLM profile id.
@@ -154,7 +155,7 @@ func New(ctx context.Context, m *Manager, skillDir string, dataDir string, keyDi
 		triggerActive: map[string]int{}, triggerCfg: map[string]triggerBehavior{},
 		profChatAgents: map[int64]*agent.ChatAgent{},
 		provByProfile:  map[int64]*provEntry{}, llmHealth: newLLMHealthRegistry(m.pg),
-		taskAgents: map[string]*taskAgentBundle{}, archiveWake: make(chan struct{}, 1)}
+		taskAgents: map[string]*taskAgentBundle{}, archiveWake: make(chan struct{}, 1), templateRunSlots: make(chan struct{}, 2)}
 	s.initSideQuestions()
 	s.initProxyPool()
 	// 熔断阈值/冷却是失败路径上的热参数，启动时把全局重试策略推给 Registry 一次；
@@ -180,6 +181,9 @@ func New(ctx context.Context, m *Manager, skillDir string, dataDir string, keyDi
 	// Wire DB-stored prompt templates into the agents (新版方案 §3.3 / §5a). With no
 	// override row, agents keep their built-in defaults — behavior is unchanged.
 	if m.pg != nil {
+		if err := m.pg.RecoverScanTemplateRuns(ctx); err != nil {
+			log.Printf("[templates] recover interrupted runs: %v", err)
+		}
 		agent.PromptOverride = func(key string) (string, bool) {
 			a, err := m.pg.GetAgentByKey(key)
 			if err != nil || a == nil {
@@ -895,6 +899,10 @@ func (s *Server) Handler() http.Handler {
 	mux.HandleFunc("PUT /api/proxies/settings", s.putProxySettings)
 	mux.HandleFunc("GET /api/tasks/{id}/egress", s.taskEgress)
 	mux.HandleFunc("POST /api/tasks/{id}/egress", s.taskEgress)
+	mux.HandleFunc("GET /api/scan-templates/engine", s.scanTemplateEngine)
+	mux.HandleFunc("GET /api/scan-template-runs", s.listScanTemplateRuns)
+	mux.HandleFunc("POST /api/scan-template-runs", s.startScanTemplateRun)
+	mux.HandleFunc("GET /api/scan-template-runs/{id}", s.getScanTemplateRun)
 	mux.HandleFunc("PUT /api/tools/{key}", s.pgUpdateTool)
 	mux.HandleFunc("POST /api/tools/custom", s.pgCreateCustomTool)
 	mux.HandleFunc("POST /api/tools/custom/test", s.pgTestCustomTool)

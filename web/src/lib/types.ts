@@ -1316,6 +1316,31 @@ export interface ScanTemplate {
   content: string;
 }
 
+export interface ScanTemplateEngine {
+  available: boolean;
+  version: string;
+  error?: string;
+  capabilities: string[];
+}
+
+export interface ScanTemplateRun {
+  id: number;
+  template_id: string;
+  template_hash: string;
+  template_content: string;
+  source_url: string;
+  source_version: string;
+  license: string;
+  target: string;
+  task_id: number | null;
+  engine_version: string;
+  status: "running" | "completed" | "failed" | "timed_out" | "interrupted";
+  error: string;
+  created_at: string;
+  finished_at: string | null;
+  matches: { matched: boolean; url: string; request: string; response: string; finding_id?: number }[];
+}
+
 // ---- Stats ----
 export interface SystemMetrics {
   scope: "container" | "process" | "unavailable";

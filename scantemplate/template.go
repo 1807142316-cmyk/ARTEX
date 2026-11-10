@@ -1,10 +1,12 @@
 package scantemplate
 
 import (
+	"bytes"
 	"crypto/sha256"
 	"encoding/hex"
 	"errors"
 	"fmt"
+	"io"
 	"net/url"
 	"strings"
 
@@ -31,8 +33,13 @@ var allowedSeverities = map[string]bool{
 
 func Validate(content []byte) (Metadata, error) {
 	var document map[string]any
-	if err := yaml.Unmarshal(content, &document); err != nil {
+	decoder := yaml.NewDecoder(bytes.NewReader(content))
+	if err := decoder.Decode(&document); err != nil {
 		return Metadata{}, fmt.Errorf("%w: malformed YAML", ErrInvalidTemplate)
+	}
+	var extra any
+	if err := decoder.Decode(&extra); err != io.EOF {
+		return Metadata{}, fmt.Errorf("%w: exactly one YAML document is required", ErrInvalidTemplate)
 	}
 	if document == nil {
 		return Metadata{}, fmt.Errorf("%w: document is empty", ErrInvalidTemplate)
@@ -67,9 +74,10 @@ func Validate(content []byte) (Metadata, error) {
 		}
 	}
 	requests, ok := document["http"].([]any)
-	if !ok || len(requests) == 0 {
+	if !ok || len(requests) == 0 || len(requests) > 8 {
 		return Metadata{}, fmt.Errorf("%w: at least one HTTP check is required", ErrInvalidTemplate)
 	}
+	pathCount := 0
 	for _, requestValue := range requests {
 		request, ok := requestValue.(map[string]any)
 		if !ok {
@@ -86,9 +94,10 @@ func Validate(content []byte) (Metadata, error) {
 			return Metadata{}, fmt.Errorf("%w: HTTP check requires a path", ErrInvalidTemplate)
 		}
 		for _, pathValue := range paths {
+			pathCount++
 			path := text(pathValue)
 			remainder := strings.TrimPrefix(path, "{{BaseURL}}")
-			if !strings.HasPrefix(path, "{{BaseURL}}/") || strings.ContainsAny(path, "\r\n") || strings.Contains(remainder, "{{") || strings.Contains(remainder, "}}") {
+			if pathCount > 16 || len(path) > 2048 || !strings.HasPrefix(path, "{{BaseURL}}/") || strings.ContainsAny(path, "\r\n") || strings.Contains(remainder, "{{") || strings.Contains(remainder, "}}") {
 				return Metadata{}, fmt.Errorf("%w: paths must be static paths under BaseURL", ErrInvalidTemplate)
 			}
 		}

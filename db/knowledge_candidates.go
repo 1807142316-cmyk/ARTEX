@@ -114,20 +114,35 @@ func (d *DB) CollectFindingKnowledgeCandidate(ctx context.Context, findingID int
 }
 
 func (d *DB) ListKnowledgeCandidates(entryID int64) ([]*KnowledgeCandidate, error) {
-	rows, err := d.Query(`SELECT `+knowledgeCandidateColumns+` FROM knowledge_candidates WHERE ($1::bigint=0 OR entry_id=$1) ORDER BY id DESC LIMIT 100`, entryID)
+	items, _, err := d.ListKnowledgeCandidatesPage(entryID, 100, 0)
+	return items, err
+}
+
+func (d *DB) ListKnowledgeCandidatesPage(entryID int64, limit, offset int) ([]*KnowledgeCandidate, int, error) {
+	if limit < 1 || limit > 100 {
+		limit = 100
+	}
+	if offset < 0 {
+		offset = 0
+	}
+	var total int
+	if err := d.QueryRow(`SELECT count(*) FROM knowledge_candidates WHERE ($1::bigint=0 OR entry_id=$1)`, entryID).Scan(&total); err != nil {
+		return nil, 0, err
+	}
+	rows, err := d.Query(`SELECT `+knowledgeCandidateColumns+` FROM knowledge_candidates WHERE ($1::bigint=0 OR entry_id=$1) ORDER BY id DESC LIMIT $2 OFFSET $3`, entryID, limit, offset)
 	if err != nil {
-		return nil, err
+		return nil, 0, err
 	}
 	defer rows.Close()
 	out := []*KnowledgeCandidate{}
 	for rows.Next() {
 		c, err := scanKnowledgeCandidate(rows)
 		if err != nil {
-			return nil, err
+			return nil, 0, err
 		}
 		out = append(out, c)
 	}
-	return out, rows.Err()
+	return out, total, rows.Err()
 }
 
 // PromoteKnowledgeCandidate accepts human-authored reusable text only.

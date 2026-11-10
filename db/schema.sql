@@ -972,8 +972,7 @@ CREATE TABLE IF NOT EXISTS tools (
     deferred    BOOLEAN NOT NULL DEFAULT false,
     updated_at  TIMESTAMPTZ NOT NULL DEFAULT now()
 );
--- Validated passive scan-template catalog. Templates are cataloged and validated here,
--- but this API does not execute template content.
+-- Versioned, validated static HTTP GET scan templates.
 CREATE TABLE IF NOT EXISTS scan_templates (
     template_id TEXT NOT NULL,
     name TEXT NOT NULL,
@@ -1000,6 +999,25 @@ CREATE INDEX IF NOT EXISTS idx_scan_templates_hash ON scan_templates(content_has
 DROP TRIGGER IF EXISTS trg_scan_templates_upd ON scan_templates;
 CREATE TRIGGER trg_scan_templates_upd BEFORE UPDATE ON scan_templates
     FOR EACH ROW EXECUTE FUNCTION set_updated_at();
+CREATE TABLE IF NOT EXISTS scan_template_runs (
+    id BIGSERIAL PRIMARY KEY,
+    template_id TEXT NOT NULL,
+    template_hash TEXT NOT NULL,
+    template_content TEXT NOT NULL,
+    source_url TEXT NOT NULL,
+    source_version TEXT NOT NULL,
+    license TEXT NOT NULL,
+    target TEXT NOT NULL,
+    engine_version TEXT NOT NULL,
+    status TEXT NOT NULL DEFAULT 'running',
+    error TEXT NOT NULL DEFAULT '',
+    matches JSONB NOT NULL DEFAULT '[]',
+    created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+    finished_at TIMESTAMPTZ,
+    FOREIGN KEY (template_id,template_hash) REFERENCES scan_templates(template_id,content_hash)
+);
+CREATE INDEX IF NOT EXISTS idx_scan_template_runs_template ON scan_template_runs(template_id,id DESC);
+ALTER TABLE scan_template_runs ADD COLUMN IF NOT EXISTS task_id BIGINT REFERENCES tasks(id) ON DELETE SET NULL;
 DROP TRIGGER IF EXISTS trg_tools_upd ON tools;
 CREATE TRIGGER trg_tools_upd BEFORE UPDATE ON tools
     FOR EACH ROW EXECUTE FUNCTION set_updated_at();

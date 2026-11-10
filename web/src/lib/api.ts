@@ -76,6 +76,8 @@ import type {
   PromptVar,
   PromptVersion,
   ScanTemplate,
+  ScanTemplateEngine,
+  ScanTemplateRun,
   SessionTokenUsage,
   Settings,
   Severity,
@@ -103,6 +105,7 @@ import type {
   ToolStat,
   TrafficDetail,
   TrafficEvidenceRef,
+  TrafficEvidenceSnapshot,
   TrafficEvidenceRole,
   TrafficHost,
   TrafficResp,
@@ -577,6 +580,7 @@ export const api = {
   knowledge: (
     params: {
       q?: string;
+      match_body?: boolean;
       category?: string;
       kind?: string;
       tier?: string;
@@ -615,7 +619,14 @@ export const api = {
   importKnowledge: (items: KnowledgeInput[]) =>
     post<{ created: number; skipped: number }>("/knowledge/import", { items }),
   knowledgeHistory: (id: number) => get<KnowledgeHistory>(`/knowledge/${id}/history`),
-  knowledgeCandidates: () => get<{ items: KnowledgeCandidate[] }>("/knowledge/candidates"),
+  knowledgeCandidates: (page = 1) =>
+    get<{ items: KnowledgeCandidate[]; total: number; page: number; limit: number }>(
+      `/knowledge/candidates?page=${page}&limit=50`,
+    ),
+  knowledgeCandidateEvidence: (id: number, snapshotID: string) =>
+    get<{ snapshot: TrafficEvidenceSnapshot; request: EvidenceBodyPreview; response: EvidenceBodyPreview }>(
+      `/knowledge/candidates/${id}/evidence/${encodeURIComponent(snapshotID)}`,
+    ),
   collectKnowledgeCandidate: (findingID: string) =>
     post<KnowledgeCandidate>(`/exploration/findings/${findingID}/knowledge-candidate`, {}),
   promoteKnowledgeCandidate: (id: number, input: KnowledgeInput & { redacted: boolean }) =>
@@ -1167,6 +1178,11 @@ export const api = {
   },
   importScanTemplate: (input: Pick<ScanTemplate, "content" | "source_url" | "source_version" | "license">) =>
     post<ScanTemplate>("/scan-templates", input),
+  scanTemplateEngine: () => get<ScanTemplateEngine>("/scan-templates/engine"),
+  startScanTemplateRun: (template_id: string, template_hash: string, target: string, task_id = "") =>
+    post<ScanTemplateRun>("/scan-template-runs", { template_id, template_hash, target, task_id }),
+  scanTemplateRuns: (page = 1) => get<{ items: ScanTemplateRun[]; total: number }>(`/scan-template-runs?page=${page}`),
+  scanTemplateRun: (id: number) => get<ScanTemplateRun>(`/scan-template-runs/${id}`),
   saveTool: (key: string, patch: Pick<Tool, "description" | "schema" | "agents" | "enabled">) =>
     put<{ ok: boolean }>(`/tools/${key}`, patch),
   resetTool: (key: string) => post<{ ok: boolean }>(`/tools/${key}/reset`, {}),

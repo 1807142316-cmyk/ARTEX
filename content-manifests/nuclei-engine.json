@@ -1,0 +1,45 @@
+{
+  "engine": "projectdiscovery/nuclei",
+  "version": "3.4.10",
+  "license": "MIT",
+  "source": "https://github.com/projectdiscovery/nuclei/releases/tag/v3.4.10",
+  "acquired_at": "2026-11-11T04:37:00+08:00",
+  "assets": {
+    "windows_amd64": {
+      "url": "https://github.com/projectdiscovery/nuclei/releases/download/v3.4.10/nuclei_3.4.10_windows_amd64.zip",
+      "sha256": "7de765bdd73f1c8ec577e82df8196b3971ecd9efc7061a7cab931bc1a8055c68"
+    },
+    "linux_amd64": {
+      "url": "https://github.com/projectdiscovery/nuclei/releases/download/v3.4.10/nuclei_3.4.10_linux_amd64.zip",
+      "sha256": "234c12cc5288af071abdcd6f854245b6067345556e1235cf96b76725c1004357"
+    },
+    "linux_arm64": {
+      "url": "https://github.com/projectdiscovery/nuclei/releases/download/v3.4.10/nuclei_3.4.10_linux_arm64.zip",
+      "sha256": "d1ed1a5c0df49d8fcd64cab4ff5840b793d6bf133b082bb6a7f67d5fc0f9c327"
+    }
+  },
+  "capabilities": [
+    "http-static-get",
+    "status-matchers",
+    "request-response-evidence"
+  ],
+  "template_source": "db/scan-templates",
+  "template_license": "AGPL-3.0-only",
+  "template_source_version": "artex-authored-v1",
+  "template_count": 3,
+  "notes": "Authored informational configuration checks; no community template corpus is bundled. Linux asset hashes are verified by Dockerfile.source during image build. Windows engine was downloaded and exercised through authenticated HTTP integration tests.",
+  "templates": [
+    {
+      "path": "db/scan-templates/artex-robots-index.yaml",
+      "sha256": "53050cda989ceeddeceae594898756d33606c8b2c66a406cbc0d7bd3c7b358b3"
+    },
+    {
+      "path": "db/scan-templates/artex-security-contact.yaml",
+      "sha256": "a0d0c013225096116c73bec03d087430e01361c708c902feb301d615bd20f11d"
+    },
+    {
+      "path": "db/scan-templates/artex-web-manifest.yaml",
+      "sha256": "badc29f917902104a165516d202b05b93f0fd9e09430cc4259bb74e4889a5681"
+    }
+  ]
+}

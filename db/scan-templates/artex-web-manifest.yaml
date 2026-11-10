@@ -1,0 +1,12 @@
+id: artex-web-manifest
+info:
+  name: Public web manifest availability
+  author: ARTEX
+  severity: info
+  description: Records an HTTP status observation for the conventional web manifest path. Review the response evidence before assigning meaning to this informational match.
+  reference: [https://www.w3.org/TR/appmanifest/]
+  tags: [configuration, web-manifest]
+http:
+  - method: GET
+    path: ["{{BaseURL}}/manifest.webmanifest"]
+    matchers: [{type: status, status: [200]}]
