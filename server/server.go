@@ -771,6 +771,7 @@ func (s *Server) Handler() http.Handler {
 	mux.HandleFunc("POST /api/knowledge", s.knowledgeCreate)
 	mux.HandleFunc("POST /api/knowledge/import", s.knowledgeImport)
 	mux.HandleFunc("GET /api/knowledge/candidates", s.knowledgeCandidates)
+	mux.HandleFunc("GET /api/knowledge/candidates/{id}/evidence/{snapshot_id}", s.knowledgeCandidateEvidence)
 	mux.HandleFunc("POST /api/knowledge/candidates/{id}/promote", s.promoteKnowledgeCandidate)
 	mux.HandleFunc("POST /api/exploration/findings/{id}/knowledge-candidate", s.collectFindingKnowledgeCandidate)
 	mux.HandleFunc("GET /api/knowledge/execution", s.knowledgeExecutionSearch)

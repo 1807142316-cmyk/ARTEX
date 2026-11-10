@@ -46,6 +46,37 @@ func (s *Server) knowledgeCandidates(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, map[string]any{"items": items})
 }
 
+func (s *Server) knowledgeCandidateEvidence(w http.ResponseWriter, r *http.Request) {
+	pg := s.pg(w)
+	if pg == nil {
+		return
+	}
+	id, ok := pathInt(r, "id")
+	if !ok {
+		writeErr(w, 400, "bad candidate id")
+		return
+	}
+	store := s.evidenceStore()
+	var result any
+	err := pg.WithKnowledgeCandidateEvidence(r.Context(), id, r.PathValue("snapshot_id"), func(snapshot db.TrafficEvidenceSnapshot) error {
+		request, err := readEvidencePreview(store, snapshot, "request", 0, 8192)
+		if err != nil {
+			return err
+		}
+		response, err := readEvidencePreview(store, snapshot, "response", 0, 8192)
+		if err != nil {
+			return err
+		}
+		result = map[string]any{"snapshot": snapshot, "request": request, "response": response}
+		return nil
+	})
+	if err != nil {
+		evidenceError(w, err)
+		return
+	}
+	writeJSON(w, 200, result)
+}
+
 func (s *Server) promoteKnowledgeCandidate(w http.ResponseWriter, r *http.Request) {
 	pg := s.pg(w)
 	if pg == nil {
