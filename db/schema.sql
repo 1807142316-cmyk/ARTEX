@@ -1440,3 +1440,79 @@ CREATE INDEX IF NOT EXISTS idx_notification_deliveries_batch
     ON notification_deliveries(batch_id) WHERE batch_id IS NOT NULL;
 CREATE INDEX IF NOT EXISTS idx_notification_deliveries_channel
     ON notification_deliveries(channel_id, id DESC);
+
+-- =====================================================================
+-- N. 可复用知识条目
+-- =====================================================================
+CREATE TABLE IF NOT EXISTS knowledge_entries (
+    id BIGSERIAL PRIMARY KEY,
+    code TEXT NOT NULL,
+    ncode TEXT NOT NULL UNIQUE,
+    category TEXT NOT NULL DEFAULT '',
+    kind TEXT NOT NULL DEFAULT '',
+    tier TEXT NOT NULL DEFAULT '',
+    summary TEXT NOT NULL,
+    body TEXT NOT NULL,
+    source_url TEXT NOT NULL DEFAULT '',
+    source_version TEXT NOT NULL DEFAULT '',
+    content_version INTEGER NOT NULL DEFAULT 1,
+    published BOOLEAN NOT NULL DEFAULT false,
+    revoked_at TIMESTAMPTZ,
+    created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+    updated_at TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+CREATE INDEX IF NOT EXISTS idx_knowledge_entries_search
+    ON knowledge_entries USING gin (to_tsvector('simple', code || ' ' || category || ' ' || kind || ' ' || tier || ' ' || summary));
+CREATE INDEX IF NOT EXISTS idx_knowledge_entries_updated ON knowledge_entries(updated_at DESC, id DESC);
+
+CREATE TABLE IF NOT EXISTS knowledge_versions (
+    id BIGSERIAL PRIMARY KEY,
+    entry_id BIGINT NOT NULL REFERENCES knowledge_entries(id) ON DELETE CASCADE,
+    version INTEGER NOT NULL,
+    code TEXT NOT NULL,
+    category TEXT NOT NULL,
+    kind TEXT NOT NULL,
+    tier TEXT NOT NULL,
+    summary TEXT NOT NULL,
+    body TEXT NOT NULL,
+    source_url TEXT NOT NULL,
+    source_version TEXT NOT NULL,
+    content_hash TEXT NOT NULL,
+    created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+    UNIQUE(entry_id, version)
+);
+
+CREATE TABLE IF NOT EXISTS knowledge_verifications (
+    id BIGSERIAL PRIMARY KEY,
+    entry_id BIGINT NOT NULL REFERENCES knowledge_entries(id) ON DELETE CASCADE,
+    version INTEGER NOT NULL,
+    result TEXT NOT NULL,
+    evidence TEXT NOT NULL,
+    verified_by TEXT NOT NULL DEFAULT 'operator',
+    created_at TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+CREATE INDEX IF NOT EXISTS idx_knowledge_verifications_entry ON knowledge_verifications(entry_id, version, id DESC);
+
+CREATE TABLE IF NOT EXISTS knowledge_retrievals (
+    id BIGSERIAL PRIMARY KEY,
+    entry_id BIGINT NOT NULL REFERENCES knowledge_entries(id) ON DELETE CASCADE,
+    version INTEGER NOT NULL,
+    call_id TEXT NOT NULL,
+    agent_key TEXT NOT NULL DEFAULT '',
+    task_id BIGINT NOT NULL DEFAULT 0,
+    retrieved_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+    UNIQUE(entry_id, call_id)
+);
+CREATE INDEX IF NOT EXISTS idx_knowledge_retrievals_entry ON knowledge_retrievals(entry_id, id DESC);
+
+CREATE TABLE IF NOT EXISTS knowledge_reviews (
+    id BIGSERIAL PRIMARY KEY,
+    entry_id BIGINT NOT NULL REFERENCES knowledge_entries(id) ON DELETE CASCADE,
+    version INTEGER NOT NULL,
+    approved BOOLEAN NOT NULL,
+    redacted BOOLEAN NOT NULL,
+    notes TEXT NOT NULL,
+    reviewed_by TEXT NOT NULL DEFAULT 'operator',
+    created_at TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+CREATE INDEX IF NOT EXISTS idx_knowledge_reviews_entry ON knowledge_reviews(entry_id, version, id DESC);

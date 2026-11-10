@@ -54,6 +54,9 @@ import type {
   InterceptRule,
   JudgeConfig,
   JudgeUsage,
+  KnowledgeEntry,
+  KnowledgeHistory,
+  KnowledgeInput,
   LLMPoolStatus,
   LLMProfile,
   LLMRecordDetail,
@@ -570,6 +573,52 @@ export const api = {
   findingAssetTree: (q: Omit<FindingQuery, "page" | "pageSize">) =>
     get<FindingAssetTree>(`/exploration/findings/asset-tree?${findingFilterParams(q).toString()}`),
   findingStats: () => get<FindingStats>("/exploration/findings/stats"),
+  knowledge: (
+    params: {
+      q?: string;
+      category?: string;
+      kind?: string;
+      tier?: string;
+      verified?: boolean;
+      published?: boolean;
+      page?: number;
+      limit?: number;
+    } = {},
+  ) => {
+    const query = new URLSearchParams();
+    for (const [key, value] of Object.entries(params))
+      if (value !== undefined && value !== "") query.set(key, String(value));
+    return get<{ items: KnowledgeEntry[]; total: number; page: number; limit: number }>(
+      `/knowledge?${query.toString()}`,
+    );
+  },
+  createKnowledge: (
+    entry: Pick<
+      KnowledgeEntry,
+      "code" | "category" | "kind" | "tier" | "summary" | "body" | "source_url" | "source_version"
+    >,
+  ) => post<KnowledgeEntry>("/knowledge", entry),
+  updateKnowledge: (
+    id: number,
+    patch: Partial<
+      Pick<KnowledgeEntry, "code" | "category" | "kind" | "tier" | "summary" | "body" | "source_url" | "source_version">
+    >,
+  ) => http<KnowledgeEntry>(`/knowledge/${id}`, { method: "PATCH", body: JSON.stringify(patch) }),
+  verifyKnowledge: (
+    id: number,
+    content_version: number,
+    result: "passed" | "failed",
+    evidence: string,
+    verified_by = "operator",
+  ) => post<KnowledgeEntry>(`/knowledge/${id}/verification`, { content_version, result, evidence, verified_by }),
+  importKnowledge: (items: KnowledgeInput[]) =>
+    post<{ created: number; skipped: number }>("/knowledge/import", { items }),
+  knowledgeHistory: (id: number) => get<KnowledgeHistory>(`/knowledge/${id}/history`),
+  reviewKnowledge: (id: number, content_version: number, approved: boolean, redacted: boolean, notes: string) =>
+    post<KnowledgeEntry>(`/knowledge/${id}/review`, { content_version, approved, redacted, notes }),
+  publishKnowledge: (id: number) => post<KnowledgeEntry>(`/knowledge/${id}/publish`, {}),
+  revokeKnowledge: (id: number) => post<KnowledgeEntry>(`/knowledge/${id}/revoke`, {}),
+  retrieveKnowledge: (id: number, call_id: string) => post<KnowledgeEntry>(`/knowledge/${id}/retrieve`, { call_id }),
   // exportFindings 触发发现页导出并下载文件。scope=selected 时传 ids(finding_id 列表);
   // scope=filtered 时传当前筛选(沿用 FindingQuery 的筛选字段);scope=all 忽略筛选。
   exportFindings: async (opts: {
