@@ -15,6 +15,7 @@ import {
   Network,
   Plug,
   Radio,
+  ScanSearch,
   ScrollText,
   Settings2,
   ShieldAlert,
@@ -111,6 +112,13 @@ export const sidebarItems: NavGroup[] = [
       { id: "approvals", title: "审批记录", url: "/system/intercept/approvals", icon: ClipboardList },
       { id: "logs", title: "日志", url: "/system/logs", icon: ScrollText },
       { id: "settings", title: "系统配置", url: "/system/settings", icon: Settings2 },
+    ],
+  },
+  {
+    id: 6,
+    label: "情报",
+    items: [
+      { id: "scan-templates", title: "扫描模板", url: "/intelligence/templates", icon: ScanSearch },
     ],
   },
 ];
