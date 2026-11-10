@@ -1,0 +1,12 @@
+id: artex-security-contact
+info:
+  name: Public security contact availability
+  author: ARTEX
+  severity: info
+  description: Records whether the RFC 9116 well-known security contact resource responds successfully. A status match alone does not validate its syntax or establish a vulnerability.
+  reference: [https://www.rfc-editor.org/rfc/rfc9116]
+  tags: [configuration, security-contact]
+http:
+  - method: GET
+    path: ["{{BaseURL}}/.well-known/security.txt"]
+    matchers: [{type: status, status: [200]}]

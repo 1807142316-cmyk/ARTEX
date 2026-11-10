@@ -76,6 +76,8 @@ import type {
   PromptVar,
   PromptVersion,
   ScanTemplate,
+  ScanTemplateEngine,
+  ScanTemplateRun,
   SessionTokenUsage,
   Settings,
   Severity,
@@ -1167,6 +1169,11 @@ export const api = {
   },
   importScanTemplate: (input: Pick<ScanTemplate, "content" | "source_url" | "source_version" | "license">) =>
     post<ScanTemplate>("/scan-templates", input),
+  scanTemplateEngine: () => get<ScanTemplateEngine>("/scan-templates/engine"),
+  startScanTemplateRun: (template_id: string, template_hash: string, target: string, task_id = "") =>
+    post<ScanTemplateRun>("/scan-template-runs", { template_id, template_hash, target, task_id }),
+  scanTemplateRuns: (page = 1) => get<{ items: ScanTemplateRun[]; total: number }>(`/scan-template-runs?page=${page}`),
+  scanTemplateRun: (id: number) => get<ScanTemplateRun>(`/scan-template-runs/${id}`),
   saveTool: (key: string, patch: Pick<Tool, "description" | "schema" | "agents" | "enabled">) =>
     put<{ ok: boolean }>(`/tools/${key}`, patch),
   resetTool: (key: string) => post<{ ok: boolean }>(`/tools/${key}/reset`, {}),

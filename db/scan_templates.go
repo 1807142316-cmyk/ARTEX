@@ -2,7 +2,7 @@ package db
 
 import (
 	"context"
-	_ "embed"
+	"embed"
 	"encoding/json"
 	"math"
 	"strings"
@@ -10,11 +10,28 @@ import (
 	"github.com/Autumn-27/artex/scantemplate"
 )
 
-//go:embed scan-templates/artex-robots-index.yaml
-var robotsTemplateContent string
+//go:embed scan-templates/*.yaml
+var authoredTemplates embed.FS
 
 func (d *DB) SeedScanTemplates(ctx context.Context) error {
-	metadata, err := scantemplate.Validate([]byte(robotsTemplateContent))
+	files, err := authoredTemplates.ReadDir("scan-templates")
+	if err != nil {
+		return err
+	}
+	for _, file := range files {
+		content, err := authoredTemplates.ReadFile("scan-templates/" + file.Name())
+		if err != nil {
+			return err
+		}
+		if err = d.seedScanTemplate(ctx, string(content)); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+func (d *DB) seedScanTemplate(ctx context.Context, content string) error {
+	metadata, err := scantemplate.Validate([]byte(content))
 	if err != nil {
 		return err
 	}
@@ -28,7 +45,7 @@ func (d *DB) SeedScanTemplates(ctx context.Context) error {
 	return d.SaveScanTemplate(ctx, ScanTemplate{ID: metadata.ID, Name: metadata.Name, Author: metadata.Author, Severity: metadata.Severity,
 		Description: metadata.Description, Tags: metadata.Tags, References: metadata.References, Protocol: metadata.Protocol,
 		SourceURL: "https://github.com/1807142316-cmyk/ARTEX", SourceVersion: "artex-authored-v1", License: "AGPL-3.0-only",
-		ContentHash: metadata.ContentHash, Content: robotsTemplateContent})
+		ContentHash: metadata.ContentHash, Content: content})
 }
 
 type ScanTemplate struct {

@@ -16,6 +16,18 @@ ARG TARGETARCH
 RUN CGO_ENABLED=0 GOOS=linux GOARCH=${TARGETARCH:-amd64} go build -trimpath -tags embedui -o /out/artex ./cmd/artex \
     && CGO_ENABLED=0 GOOS=linux GOARCH=${TARGETARCH:-amd64} go build -trimpath -o /out/cve-import ./cmd/cve-import
 
+FROM debian:bookworm-slim AS scanengine
+ARG TARGETARCH
+RUN apt-get update && apt-get install -y --no-install-recommends ca-certificates curl unzip \
+    && case "${TARGETARCH:-amd64}" in \
+      amd64) checksum=234c12cc5288af071abdcd6f854245b6067345556e1235cf96b76725c1004357 ;; \
+      arm64) checksum=d1ed1a5c0df49d8fcd64cab4ff5840b793d6bf133b082bb6a7f67d5fc0f9c327 ;; \
+      *) echo 'Unsupported Nuclei architecture' >&2; exit 1 ;; \
+    esac \
+    && curl -fSL "https://github.com/projectdiscovery/nuclei/releases/download/v3.4.10/nuclei_3.4.10_linux_${TARGETARCH:-amd64}.zip" -o /tmp/nuclei.zip \
+    && echo "$checksum  /tmp/nuclei.zip" | sha256sum -c - \
+    && unzip /tmp/nuclei.zip nuclei LICENSE.md -d /engine
+
 FROM python:3.12-slim-bookworm
 RUN apt-get update && apt-get install -y --no-install-recommends \
       ca-certificates curl wget git jq unzip ripgrep vim \
@@ -27,6 +39,8 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     && rm -rf /var/lib/apt/lists/*
 WORKDIR /app
 COPY --from=backend /out/artex /out/cve-import ./
+COPY --from=scanengine /engine/nuclei /usr/local/bin/nuclei
+COPY --from=scanengine /engine/LICENSE.md /usr/share/doc/nuclei/LICENSE.md
 COPY start.sh ./
 COPY skills/ ./skills/
 RUN chmod +x /app/artex /app/cve-import /app/start.sh
