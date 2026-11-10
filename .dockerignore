@@ -1,4 +1,9 @@
 .git
+.worktrees
+content
+config.json
+.env
+jwt.key
 **/node_modules
 web/.next
 web/out
