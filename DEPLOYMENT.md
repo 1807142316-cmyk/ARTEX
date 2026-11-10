@@ -87,7 +87,7 @@ the installed VMware CLI and existing NAT network. `vmrun ... start ... nogui`
 failed before guest boot with `VMware Workstation unrecoverable error (vmx)` and
 `Exception 0xc0000005 (access violation)`. The local diagnostic log is
 `%TEMP%/artex-parity-linux-vm/vmware.log`. No OS features, services or host network
-configuration were installed or changed. The failed guest has been unregistered.
+configuration were installed or changed. No running guest remains; Workstation does not support the unregister CLI operation. The temporary guest files are outside the repository.
 
 The pinned runtime npm releases `@playwright/mcp@0.0.85`,
 `@playwright/cli@0.1.24` and `playwright@1.65.0` exist in the registry. This checks
