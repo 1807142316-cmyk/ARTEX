@@ -38,6 +38,12 @@ Template updates cannot overwrite execution snapshots. Uncompleted runs older
 than five minutes are displayed as interrupted after application restart;
 the scanner does not automatically repeat them.
 
+Pausing, terminating or deleting an associated task cancels its active template
+runs. Paused and terminal tasks cannot start a new run; canceled results do not
+create candidate findings. Deleting a task preserves the execution snapshot with
+an interrupted outcome. While the proxy pool is enabled, a task association is
+required, and Nuclei uses that task's gateway rather than a separate direct exit.
+
 Verification on Windows used the downloaded and SHA-256 verified real engine,
 authenticated HTTP handlers and a real PostgreSQL database. It covered one
 actual outgoing GET, matched and unmatched responses, connection failure,
