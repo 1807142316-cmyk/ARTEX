@@ -54,6 +54,7 @@ import type {
   InterceptRule,
   JudgeConfig,
   JudgeUsage,
+  KnowledgeCandidate,
   KnowledgeEntry,
   KnowledgeHistory,
   KnowledgeInput,
@@ -614,6 +615,11 @@ export const api = {
   importKnowledge: (items: KnowledgeInput[]) =>
     post<{ created: number; skipped: number }>("/knowledge/import", { items }),
   knowledgeHistory: (id: number) => get<KnowledgeHistory>(`/knowledge/${id}/history`),
+  knowledgeCandidates: () => get<{ items: KnowledgeCandidate[] }>("/knowledge/candidates"),
+  collectKnowledgeCandidate: (findingID: string) =>
+    post<KnowledgeCandidate>(`/exploration/findings/${findingID}/knowledge-candidate`, {}),
+  promoteKnowledgeCandidate: (id: number, input: KnowledgeInput & { redacted: boolean }) =>
+    post<KnowledgeEntry>(`/knowledge/candidates/${id}/promote`, input),
   reviewKnowledge: (id: number, content_version: number, approved: boolean, redacted: boolean, notes: string) =>
     post<KnowledgeEntry>(`/knowledge/${id}/review`, { content_version, approved, redacted, notes }),
   publishKnowledge: (id: number) => post<KnowledgeEntry>(`/knowledge/${id}/publish`, {}),

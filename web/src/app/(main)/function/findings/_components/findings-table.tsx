@@ -6,6 +6,7 @@ import Link from "next/link";
 
 import {
   ArrowUpRightIcon,
+  BookOpenIcon,
   ChevronRightIcon,
   FileTextIcon,
   FlaskConicalIcon,
@@ -13,6 +14,7 @@ import {
   ShieldAlertIcon,
   Trash2Icon,
 } from "lucide-react";
+import { toast } from "sonner";
 
 import { CopyButton } from "@/components/copy-button";
 import { Markdown } from "@/components/markdown";
@@ -36,6 +38,7 @@ import { Label } from "@/components/ui/label";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Spinner } from "@/components/ui/spinner";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
+import { api } from "@/lib/api";
 import { statusMeta } from "@/lib/status";
 import type { ActiveFindingRetest, Finding, FindingStatus, Severity } from "@/lib/types";
 import { cn } from "@/lib/utils";
@@ -293,6 +296,23 @@ export function FindingsTable({
                       <Button size="sm" variant="ghost" onClick={() => onDeepen(f)}>
                         <FlaskConicalIcon data-icon="inline-start" />
                         深入
+                      </Button>
+                    )}
+                    {f.finding_id && (
+                      <Button
+                        size="sm"
+                        variant="ghost"
+                        onClick={() => {
+                          if (!f.finding_id) return;
+                          void api.collectKnowledgeCandidate(f.finding_id).then(
+                            () => toast.success("已保存知识候选来源，可在武器库中整理草稿"),
+                            (error: Error) => toast.error(`收集失败：${error.message}`),
+                          );
+                        }}
+                        title="保存任务、发现和证据引用，不复制原始证据"
+                      >
+                        <BookOpenIcon data-icon="inline-start" />
+                        知识候选
                       </Button>
                     )}
                     {f.finding_id && (

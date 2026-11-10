@@ -12,7 +12,7 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
 import { api } from "@/lib/api";
-import type { KnowledgeEntry, KnowledgeHistory, KnowledgeInput } from "@/lib/types";
+import type { KnowledgeCandidate, KnowledgeEntry, KnowledgeHistory, KnowledgeInput } from "@/lib/types";
 
 const emptyDraft = {
   code: "",
@@ -49,6 +49,10 @@ export default function KnowledgePage() {
   const loadSequence = React.useRef(0);
   const importInput = React.useRef<HTMLInputElement>(null);
   const [editingID, setEditingID] = React.useState<number | null>(null);
+  const [candidates, setCandidates] = React.useState<KnowledgeCandidate[]>([]);
+  const [candidateID, setCandidateID] = React.useState<number | null>(null);
+  const [candidateRedacted, setCandidateRedacted] = React.useState(false);
+  const [showCandidates, setShowCandidates] = React.useState(false);
 
   const load = React.useCallback(async () => {
     const sequence = ++loadSequence.current;
@@ -124,10 +128,16 @@ export default function KnowledgePage() {
     event.preventDefault();
     setSaving(true);
     try {
-      const saved = editingID ? await api.updateKnowledge(editingID, draft) : await api.createKnowledge(draft);
+      let saved: KnowledgeEntry;
+      if (candidateID)
+        saved = await api.promoteKnowledgeCandidate(candidateID, { ...draft, redacted: candidateRedacted });
+      else if (editingID) saved = await api.updateKnowledge(editingID, draft);
+      else saved = await api.createKnowledge(draft);
       setShowEditor(false);
       setDraft(emptyDraft);
       setEditingID(null);
+      setCandidateID(null);
+      setShowCandidates(false);
       setSelected(saved);
       toast.success(editingID ? "条目已更新，新版本需要重新验证" : "知识条目已创建，需完成验证后才能发布");
       await load();
@@ -194,6 +204,20 @@ export default function KnowledgePage() {
           </p>
         </div>
         <div className="flex gap-2">
+          <Button
+            variant="outline"
+            onClick={() => {
+              void api.knowledgeCandidates().then(
+                (result) => {
+                  setCandidates(result.items);
+                  setShowCandidates((open) => !open);
+                },
+                (error: Error) => toast.error(`候选加载失败：${error.message}`),
+              );
+            }}
+          >
+            候选来源
+          </Button>
           <input
             ref={importInput}
             type="file"
@@ -208,6 +232,7 @@ export default function KnowledgePage() {
           <Button
             onClick={() => {
               setEditingID(null);
+              setCandidateID(null);
               setDraft(emptyDraft);
               setShowEditor((open) => !open);
             }}
@@ -218,13 +243,81 @@ export default function KnowledgePage() {
         </div>
       </header>
 
+      {showCandidates && (
+        <Card>
+          <CardHeader>
+            <CardTitle>知识候选来源</CardTitle>
+          </CardHeader>
+          <CardContent className="grid max-h-72 gap-3 overflow-auto">
+            {candidates.length === 0 && (
+              <p className="text-muted-foreground text-sm">从发现列表的“知识候选”操作收集来源。</p>
+            )}
+            {candidates.map((candidate) => (
+              <div
+                key={candidate.id}
+                className="flex flex-wrap items-center justify-between gap-2 rounded-md border p-3"
+              >
+                <div className="grid gap-1 text-sm">
+                  <span>
+                    来源 {candidate.source_identity} · 证据版本 {candidate.source_version} ·{" "}
+                    {candidate.evidence_refs.length} 个证据引用
+                  </span>
+                  <span className="break-all font-mono text-muted-foreground text-xs">
+                    SHA256 {candidate.source_hash}
+                  </span>
+                  {candidate.task_id && (
+                    <a className="underline" href={`/function/tasks/detail?id=${candidate.task_id}`}>
+                      任务 #{candidate.task_id}
+                    </a>
+                  )}
+                  {candidate.finding_id && (
+                    <a className="underline" href={`/function/findings/detail?id=${candidate.finding_id}`}>
+                      发现 #{candidate.finding_id}
+                    </a>
+                  )}
+                </div>
+                <Button
+                  size="sm"
+                  disabled={candidate.entry_id !== null}
+                  onClick={() => {
+                    setCandidateID(candidate.id);
+                    setCandidateRedacted(false);
+                    setEditingID(null);
+                    setDraft({
+                      ...emptyDraft,
+                      code: `KB-FINDING-${candidate.finding_id ?? candidate.id}-${candidate.id}`,
+                    });
+                    setShowEditor(true);
+                  }}
+                >
+                  {candidate.entry_id ? `已整理为 #${candidate.entry_id}` : "整理为草稿"}
+                </Button>
+              </div>
+            ))}
+          </CardContent>
+        </Card>
+      )}
+
       {showEditor && (
         <Card>
           <CardHeader>
-            <CardTitle>{editingID ? "编辑知识条目" : "新建知识条目"}</CardTitle>
+            <CardTitle>
+              {candidateID ? `整理候选 #${candidateID}` : editingID ? "编辑知识条目" : "新建知识条目"}
+            </CardTitle>
           </CardHeader>
           <CardContent>
             <form className="grid gap-3 md:grid-cols-2" onSubmit={createEntry}>
+              {candidateID && (
+                <label className="flex items-center gap-2 text-sm md:col-span-2">
+                  <input
+                    type="checkbox"
+                    required
+                    checked={candidateRedacted}
+                    onChange={(event) => setCandidateRedacted(event.target.checked)}
+                  />
+                  正文由人工整理，不包含原始目标证据、凭据和身份信息；来源引用会单独保留。
+                </label>
+              )}
               {(["code", "category", "kind", "tier", "source_url", "source_version"] as const).map((key) => (
                 <div className="grid gap-1.5" key={key}>
                   <Label htmlFor={`knowledge-${key}`}>
@@ -477,6 +570,7 @@ export default function KnowledgePage() {
                     variant="outline"
                     onClick={() => {
                       setEditingID(selected.id);
+                      setCandidateID(null);
                       setDraft({
                         code: selected.code,
                         category: selected.category,
@@ -564,6 +658,15 @@ export default function KnowledgePage() {
                 )}
                 {showHistory && history && (
                   <div className="grid gap-3 border-t pt-3">
+                    {history.candidate_sources.map((source) => (
+                      <div key={source.id} className="rounded-md border p-2 text-sm">
+                        <strong>候选来源 {source.source_identity}</strong> · 证据版本 {source.source_version}
+                        <p className="break-all font-mono text-xs">SHA256 {source.source_hash}</p>
+                        <p>
+                          {source.evidence_refs.map((ref) => `证据 #${ref.binding_id} / ${ref.snapshot_id}`).join("；")}
+                        </p>
+                      </div>
+                    ))}
                     <h3 className="font-medium text-sm">最近 100 条版本及决策记录</h3>
                     {history.versions.map((version) => (
                       <details key={version.version} className="rounded-md border p-2 text-sm">
