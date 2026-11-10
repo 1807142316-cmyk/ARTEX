@@ -157,7 +157,8 @@ func TestAuthoredSkillPackageLoadsWithResolvedResourcesAndUsage(t *testing.T) {
 	oldAugment := agent.ToolAugment
 	t.Cleanup(func() { agent.ToolAugment = oldAugment })
 	skillRoot := t.TempDir()
-	for _, name := range []string{"saved-header-review", "evidence-inventory", "cve-record-review"} {
+	packageNames := []string{"saved-header-review", "evidence-inventory", "cve-record-review", "scope-asset-inventory", "har-api-inventory", "knowledge-package-check", "report-evidence-index"}
+	for _, name := range packageNames {
 		for _, relative := range []string{"SKILL.md", "scripts/run.py"} {
 			content, err := os.ReadFile(filepath.Join("..", "skills", name, relative))
 			if err != nil {
@@ -187,7 +188,7 @@ func TestAuthoredSkillPackageLoadsWithResolvedResourcesAndUsage(t *testing.T) {
 		t.Fatal(err)
 	}
 	t.Cleanup(func() { _ = m.pg.SetAgentSkillVisibility(planner.ID, originalBindings) })
-	for _, name := range []string{"saved-header-review", "evidence-inventory", "cve-record-review"} {
+	for _, name := range packageNames {
 		before := httptest.NewRecorder()
 		r := httptest.NewRequest("GET", "/api/skills?q="+name, nil)
 		r.Header.Set("Authorization", "Bearer "+token)
