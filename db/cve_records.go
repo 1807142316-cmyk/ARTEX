@@ -41,6 +41,18 @@ func (d *DB) UpsertCVERecords(ctx context.Context, records []CVERecord) (CVEImpo
 		return result, err
 	}
 	defer tx.Rollback()
+	result, err = upsertCVERecordsTx(ctx, tx, records)
+	if err != nil {
+		return CVEImportResult{}, err
+	}
+	if err := tx.Commit(); err != nil {
+		return CVEImportResult{}, err
+	}
+	return result, nil
+}
+
+func upsertCVERecordsTx(ctx context.Context, tx *sql.Tx, records []CVERecord) (CVEImportResult, error) {
+	var result CVEImportResult
 	// Serialize imports, including first inserts whose row does not yet exist.
 	if _, err := tx.ExecContext(ctx, `SELECT pg_advisory_xact_lock(7337741011)`); err != nil {
 		return result, err
@@ -76,9 +88,6 @@ func (d *DB) UpsertCVERecords(ctx context.Context, records []CVERecord) (CVEImpo
 		} else if previousHash != record.ContentHash {
 			result.Modified++
 		}
-	}
-	if err := tx.Commit(); err != nil {
-		return CVEImportResult{}, err
 	}
 	return result, nil
 }

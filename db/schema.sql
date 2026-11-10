@@ -1433,3 +1433,31 @@ CREATE INDEX IF NOT EXISTS idx_notification_deliveries_batch
     ON notification_deliveries(batch_id) WHERE batch_id IS NOT NULL;
 CREATE INDEX IF NOT EXISTS idx_notification_deliveries_channel
     ON notification_deliveries(channel_id, id DESC);
+
+-- CVE update cursor commits only after a complete baseline/delta release.
+CREATE TABLE IF NOT EXISTS cve_sync_state (
+    id BOOLEAN PRIMARY KEY DEFAULT true CHECK (id),
+    enabled BOOLEAN NOT NULL DEFAULT true,
+    interval_minutes INTEGER NOT NULL DEFAULT 60 CHECK (interval_minutes BETWEEN 5 AND 10080),
+    next_check TIMESTAMPTZ NOT NULL DEFAULT now() + interval '5 minutes',
+    last_check TIMESTAMPTZ,
+    last_success TIMESTAMPTZ,
+    source_version TEXT NOT NULL DEFAULT '',
+    baseline_name TEXT NOT NULL DEFAULT ''
+);
+INSERT INTO cve_sync_state(id) VALUES (true) ON CONFLICT DO NOTHING;
+CREATE TABLE IF NOT EXISTS cve_sync_runs (
+    id BIGSERIAL PRIMARY KEY,
+    status TEXT NOT NULL DEFAULT 'queued',
+    source_version TEXT NOT NULL DEFAULT '',
+    baseline_name TEXT NOT NULL DEFAULT '',
+    assets JSONB NOT NULL DEFAULT '[]'::jsonb,
+    checkpoint INTEGER NOT NULL DEFAULT 0,
+    added INTEGER NOT NULL DEFAULT 0,
+    modified INTEGER NOT NULL DEFAULT 0,
+    failed INTEGER NOT NULL DEFAULT 0,
+    last_error TEXT NOT NULL DEFAULT '',
+    created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+    finished_at TIMESTAMPTZ
+);
+CREATE UNIQUE INDEX IF NOT EXISTS idx_cve_sync_active ON cve_sync_runs ((true)) WHERE status IN ('queued','running');

@@ -119,6 +119,7 @@ type Server struct {
 	archiveWake chan struct{}
 	archiveWG   sync.WaitGroup
 	side        *sideQuestionState
+	cveSync     *cveSyncService
 }
 
 // provEntry is a cached provider + its config for one LLM profile id.
@@ -255,6 +256,7 @@ func New(ctx context.Context, m *Manager, skillDir string, dataDir string, keyDi
 	s.restoreTaskRuntimes()
 	go s.reconcileConcurrency()
 	s.startTaskArchiveWorker()
+	s.startCVESync(dataDir)
 	s.wireInterceptReviewer() // LLM 兜底审批:未命中拦截规则的命令交给模型判定
 	return s
 }
@@ -756,6 +758,9 @@ func (s *Server) Handler() http.Handler {
 	mux.HandleFunc("POST /api/cve/import", s.importCVERecords)
 	mux.HandleFunc("GET /api/cve", s.searchCVERecords)
 	mux.HandleFunc("GET /api/cve/stats", s.cveRecordStats)
+	mux.HandleFunc("GET /api/cve/sync", s.getCVESync)
+	mux.HandleFunc("PUT /api/cve/sync", s.setCVESync)
+	mux.HandleFunc("POST /api/cve/sync", s.requestCVESync)
 
 	mux.HandleFunc("GET /api/exploration/frontier", s.frontier)
 	mux.HandleFunc("GET /api/exploration/findings", s.findings)
