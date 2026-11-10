@@ -11,7 +11,7 @@ import { Input } from "@/components/ui/input";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Textarea } from "@/components/ui/textarea";
 import { api } from "@/lib/api";
-import type { ScanTemplate } from "@/lib/types";
+import type { ScanTemplate, ScanTemplateEngine, ScanTemplateRun } from "@/lib/types";
 
 export default function ScanTemplatesPage() {
   const [items, setItems] = React.useState<ScanTemplate[]>([]);
@@ -29,6 +29,71 @@ export default function ScanTemplatesPage() {
   const [importing, setImporting] = React.useState(false);
   const [importResult, setImportResult] = React.useState("");
   const [importError, setImportError] = React.useState("");
+  const [target, setTarget] = React.useState("");
+  const [taskID, setTaskID] = React.useState("");
+  const [engine, setEngine] = React.useState<ScanTemplateEngine | null>(null);
+  const [runError, setRunError] = React.useState("");
+  const [starting, setStarting] = React.useState(false);
+  const [runs, setRuns] = React.useState<ScanTemplateRun[]>([]);
+  const [runTotal, setRunTotal] = React.useState(0);
+  const [runPage, setRunPage] = React.useState(1);
+  const [selectedRun, setSelectedRun] = React.useState<ScanTemplateRun | null>(null);
+
+  React.useEffect(() => {
+    let disposed = false;
+    api
+      .scanTemplateEngine()
+      .then((value) => {
+        if (!disposed) setEngine(value);
+      })
+      .catch((reason: unknown) => {
+        if (!disposed) setRunError(reason instanceof Error ? reason.message : "引擎状态读取失败");
+      });
+    const load = () =>
+      api
+        .scanTemplateRuns(runPage)
+        .then((value) => {
+          if (!disposed) {
+            setRuns(value.items);
+            setRunTotal(value.total);
+          }
+        })
+        .catch((reason: unknown) => {
+          if (!disposed) setRunError(reason instanceof Error ? reason.message : "执行历史读取失败");
+        });
+    void load();
+    const timer = setInterval(load, 2500);
+    return () => {
+      disposed = true;
+      clearInterval(timer);
+    };
+  }, [runPage]);
+
+  async function runTemplate(template: ScanTemplate) {
+    setStarting(true);
+    setRunError("");
+    try {
+      const run = await api.startScanTemplateRun(template.id, template.content_hash, target, taskID);
+      setSelectedRun(run);
+      setRunPage(1);
+      const result = await api.scanTemplateRuns();
+      setRuns(result.items);
+      setRunTotal(result.total);
+    } catch (reason: unknown) {
+      setRunError(reason instanceof Error ? reason.message : "执行启动失败");
+    } finally {
+      setStarting(false);
+    }
+  }
+
+  async function viewRun(id: number) {
+    try {
+      setSelectedRun(await api.scanTemplateRun(id));
+      setRunError("");
+    } catch (reason: unknown) {
+      setRunError(reason instanceof Error ? reason.message : "执行记录读取失败");
+    }
+  }
 
   async function importTemplate(event: React.FormEvent<HTMLFormElement>) {
     event.preventDefault();
@@ -85,7 +150,7 @@ export default function ScanTemplatesPage() {
       <div>
         <h1 className="font-semibold text-xl tracking-tight">扫描模板</h1>
         <p className="text-muted-foreground text-sm">
-          通过结构校验的 HTTP GET 检查模板。可导入、检索和审阅内容，此目录不执行扫描。
+          静态 HTTP GET 与状态码检查，由固定版本 Nuclei 执行。命中会进入待审发现，并保留执行版本与请求响应。
         </p>
       </div>
       <Card>
@@ -94,6 +159,32 @@ export default function ScanTemplatesPage() {
           <CardDescription>{loading ? "正在读取目录…" : `共 ${total} 个模板`}</CardDescription>
         </CardHeader>
         <CardContent className="space-y-4">
+          <div className="space-y-2 rounded-md border p-3">
+            <p className="text-sm">
+              Nuclei {engine?.version ?? "…"} · {engine?.available ? "可用" : (engine?.error ?? "正在检查引擎")}
+            </p>
+            <Input
+              type="url"
+              aria-label="模板运行目标"
+              placeholder="HTTP(S) 目标 URL"
+              value={target}
+              onChange={(event) => setTarget(event.target.value)}
+            />
+            <Input
+              aria-label="模板运行关联任务"
+              placeholder="关联任务 ID（可选）"
+              value={taskID}
+              onChange={(event) => setTaskID(event.target.value)}
+            />
+            <p className="text-muted-foreground text-xs">
+              每次执行最多 16 个静态路径；不跟随重定向。支持范围以导入校验结果为准。
+            </p>
+            {runError && (
+              <p role="alert" className="text-destructive text-sm">
+                {runError}
+              </p>
+            )}
+          </div>
           <div className="flex flex-wrap gap-2">
             <div className="relative min-w-52 flex-1">
               <SearchIcon className="absolute top-2.5 left-2.5 size-4 text-muted-foreground" />
@@ -190,6 +281,13 @@ export default function ScanTemplatesPage() {
                     <summary className="cursor-pointer text-xs">查看模板内容</summary>
                     <pre className="mt-2 max-h-64 overflow-auto whitespace-pre-wrap text-xs">{template.content}</pre>
                   </details>
+                  <Button
+                    type="button"
+                    disabled={starting || !engine?.available || !target.trim()}
+                    onClick={() => void runTemplate(template)}
+                  >
+                    运行此版本
+                  </Button>
                 </CardContent>
               </Card>
             ))}
@@ -203,6 +301,86 @@ export default function ScanTemplatesPage() {
               下一页
             </Button>
           </div>
+        </CardContent>
+      </Card>
+      <Card>
+        <CardHeader>
+          <CardTitle>执行历史</CardTitle>
+          <CardDescription>共 {runTotal} 条。列表不包含请求响应；展开记录后读取证据。</CardDescription>
+        </CardHeader>
+        <CardContent className="space-y-3">
+          {runs.length === 0 && <p className="text-muted-foreground text-sm">尚无执行记录。</p>}
+          {runs.map((run) => (
+            <div
+              key={run.id}
+              className="flex flex-wrap items-center justify-between gap-2 rounded-md border p-3 text-sm"
+            >
+              <div>
+                <p>
+                  #{run.id} · {run.template_id} · <Badge variant="outline">{run.status}</Badge>
+                </p>
+                <p className="break-all text-muted-foreground text-xs">
+                  {run.target} · {new Date(run.created_at).toLocaleString()}
+                </p>
+              </div>
+              <Button variant="outline" size="sm" onClick={() => void viewRun(run.id)}>
+                查看结果与证据
+              </Button>
+            </div>
+          ))}
+          <div className="flex items-center justify-end gap-2">
+            <Button variant="outline" disabled={runPage <= 1} onClick={() => setRunPage(runPage - 1)}>
+              上一页
+            </Button>
+            <span className="text-xs">第 {runPage} 页</span>
+            <Button variant="outline" disabled={runPage * 20 >= runTotal} onClick={() => setRunPage(runPage + 1)}>
+              下一页
+            </Button>
+          </div>
+          {selectedRun && (
+            <div className="space-y-2 rounded-md border p-3 text-sm">
+              <div className="flex justify-between gap-2">
+                <p>
+                  #{selectedRun.id} · {selectedRun.status} · Nuclei {selectedRun.engine_version}
+                </p>
+                <Button size="sm" variant="outline" onClick={() => void viewRun(selectedRun.id)}>
+                  刷新
+                </Button>
+              </div>
+              <p className="break-all font-mono text-xs">SHA-256 {selectedRun.template_hash}</p>
+              <p className="text-muted-foreground text-xs">
+                {selectedRun.source_version} · {selectedRun.license}
+              </p>
+              {selectedRun.error && (
+                <p role="alert" className="text-destructive">
+                  {selectedRun.error}
+                </p>
+              )}
+              {selectedRun.status === "completed" && selectedRun.matches.length === 0 && (
+                <p>执行完成，没有结果事件。</p>
+              )}
+              {selectedRun.matches.map((match) => (
+                <div key={`${match.url}:${match.request}:${match.matched}`} className="space-y-2 border-t pt-2">
+                  <p className="break-all">
+                    {match.matched ? "命中，需独立核验" : "未命中"} · {match.url}
+                  </p>
+                  {match.finding_id && <p>候选发现 #{match.finding_id}（待审）</p>}
+                  <details>
+                    <summary className="cursor-pointer">请求与响应证据</summary>
+                    <pre className="max-h-96 overflow-auto whitespace-pre-wrap text-xs">
+                      {match.request}
+                      {"\n"}
+                      {match.response}
+                    </pre>
+                  </details>
+                </div>
+              ))}
+              <details>
+                <summary className="cursor-pointer">执行时模板</summary>
+                <pre className="max-h-64 overflow-auto whitespace-pre-wrap text-xs">{selectedRun.template_content}</pre>
+              </details>
+            </div>
+          )}
         </CardContent>
       </Card>
       <Card>
