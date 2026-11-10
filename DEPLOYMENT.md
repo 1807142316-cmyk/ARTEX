@@ -66,6 +66,9 @@ structures. Restore a database backup if schema compatibility is uncertain.
 
 The implementation has been tested on Windows with a real isolated PostgreSQL
 17 instance and authenticated HTTP requests. Linux binaries can be cross-built.
+The full 421,793-record database was dumped, restored into a separate database,
+and reopened with this application; authenticated statistics and a retained CVE
+search succeeded. The local backup is `content/cve/corpus.pgcustom`.
 This workspace has no Docker daemon or configured WSL distribution; Compose
 cold start, Linux metric comparison, and backup restoration on Linux still need
 runtime verification. A successful cross-build does not certify those checks.
