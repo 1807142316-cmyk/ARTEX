@@ -1,0 +1,9 @@
+# Use with: docker compose -f docker-compose.yml -f compose.source.yml up --build -d
+services:
+  artex:
+    image: artex:screenshot-parity-local
+    build:
+      context: .
+      dockerfile: Dockerfile.source
+    volumes:
+      - ./content:/app/content:ro

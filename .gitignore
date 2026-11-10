@@ -1,5 +1,7 @@
 # backend
 /data/
+/content/
+/.worktrees/
 *.db
 *.db-wal
 *.db-shm

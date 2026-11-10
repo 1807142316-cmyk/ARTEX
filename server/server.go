@@ -120,6 +120,7 @@ type Server struct {
 	archiveWake chan struct{}
 	archiveWG   sync.WaitGroup
 	side        *sideQuestionState
+	cveSync     *cveSyncService
 	metrics     resourceSampler
 }
 
@@ -257,6 +258,7 @@ func New(ctx context.Context, m *Manager, skillDir string, dataDir string, keyDi
 	s.restoreTaskRuntimes()
 	go s.reconcileConcurrency()
 	s.startTaskArchiveWorker()
+	s.startCVESync(dataDir)
 	s.wireInterceptReviewer() // LLM 兜底审批:未命中拦截规则的命令交给模型判定
 	return s
 }
@@ -759,9 +761,24 @@ func (s *Server) Handler() http.Handler {
 	mux.HandleFunc("POST /api/cve/import", s.importCVERecords)
 	mux.HandleFunc("GET /api/cve", s.searchCVERecords)
 	mux.HandleFunc("GET /api/cve/stats", s.cveRecordStats)
+	mux.HandleFunc("GET /api/cve/sync", s.getCVESync)
+	mux.HandleFunc("PUT /api/cve/sync", s.setCVESync)
+	mux.HandleFunc("POST /api/cve/sync", s.requestCVESync)
 
 	mux.HandleFunc("GET /api/exploration/frontier", s.frontier)
 	mux.HandleFunc("GET /api/exploration/findings", s.findings)
+	mux.HandleFunc("GET /api/knowledge", s.knowledgeList)
+	mux.HandleFunc("POST /api/knowledge", s.knowledgeCreate)
+	mux.HandleFunc("POST /api/knowledge/import", s.knowledgeImport)
+	mux.HandleFunc("GET /api/knowledge/execution", s.knowledgeExecutionSearch)
+	mux.HandleFunc("GET /api/knowledge/{id}/history", s.knowledgeHistory)
+	mux.HandleFunc("POST /api/knowledge/{id}/review", s.knowledgeReview)
+	mux.HandleFunc("GET /api/knowledge/{id}", s.knowledgeGet)
+	mux.HandleFunc("PATCH /api/knowledge/{id}", s.knowledgePatch)
+	mux.HandleFunc("POST /api/knowledge/{id}/verification", s.knowledgeVerify)
+	mux.HandleFunc("POST /api/knowledge/{id}/publish", s.knowledgePublish)
+	mux.HandleFunc("POST /api/knowledge/{id}/revoke", s.knowledgeRevoke)
+	mux.HandleFunc("POST /api/knowledge/{id}/retrieve", s.knowledgeRetrieve)
 	mux.HandleFunc("GET /api/exploration/findings/groups", s.findingGroups)
 	mux.HandleFunc("GET /api/exploration/findings/asset-tree", s.findingAssetTree)
 	mux.HandleFunc("GET /api/exploration/findings/stats", s.findingStats)
