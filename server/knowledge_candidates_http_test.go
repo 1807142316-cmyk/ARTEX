@@ -16,14 +16,12 @@ import (
 )
 
 func TestKnowledgeCandidateHTTPCollectsReferencesAndPromotesRedactedDraft(t *testing.T) {
-	m, err := NewManager(t.TempDir(), "")
-	if err != nil {
-		t.Fatal(err)
-	}
+	m := newParityTestManager(t)
 	t.Cleanup(func() { m.Close() })
 	ctx, cancel := context.WithCancel(context.Background())
 	t.Cleanup(cancel)
 	s := New(ctx, m, t.TempDir(), t.TempDir(), t.TempDir())
+	t.Cleanup(func() { cancel(); s.archiveWG.Wait(); <-s.side.done })
 	token, err := signJWT(s.jwtKey)
 	if err != nil {
 		t.Fatal(err)
