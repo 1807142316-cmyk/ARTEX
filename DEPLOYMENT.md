@@ -72,3 +72,26 @@ search succeeded. The local backup is `content/cve/corpus.pgcustom`.
 This workspace has no Docker daemon or configured WSL distribution; Compose
 cold start, Linux metric comparison, and backup restoration on Linux still need
 runtime verification. A successful cross-build does not certify those checks.
+
+## Local Linux runtime probe (2026-11-11)
+
+Actual Linux Compose acceptance could not run on this Windows host. Docker,
+Podman, nerdctl, containerd and QEMU executables are absent; no container services,
+container named pipes or configured remote runtime environment/context were
+found. `wsl --list --verbose` reports WSL is not installed. Existing VMware
+Workstation reports zero running guests and an empty guest inventory.
+
+A disposable Alpine Linux 3.22.2 virtual ISO guest was then prepared under the
+system temporary directory, limited to two virtual CPUs and 4 GiB memory, using
+the installed VMware CLI and existing NAT network. `vmrun ... start ... nogui`
+failed before guest boot with `VMware Workstation unrecoverable error (vmx)` and
+`Exception 0xc0000005 (access violation)`. The local diagnostic log is
+`%TEMP%/artex-parity-linux-vm/vmware.log`. No OS features, services or host network
+configuration were installed or changed. No running guest remains; Workstation does not support the unregister CLI operation. The temporary guest files are outside the repository.
+
+The pinned runtime npm releases `@playwright/mcp@0.0.85`,
+`@playwright/cli@0.1.24` and `playwright@1.65.0` exist in the registry. This checks
+package availability only; it does not certify Linux installation, Chromium
+startup, Compose startup/upgrade/restore, Linux metrics or Linux skill execution.
+Issue #5's Linux deployment acceptance therefore remains open. Run the documented
+Compose flow on an existing Linux Docker host before closing that acceptance.
