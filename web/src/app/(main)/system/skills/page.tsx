@@ -295,6 +295,7 @@ function SkillsOverview({
 // ── Page ──────────────────────────────────────────────────────────────────
 export default function SkillsPage() {
   const [skills, setSkills] = React.useState<SkillItem[]>([]);
+  const [skillQuery, setSkillQuery] = React.useState("");
   const [agents, setAgents] = React.useState<Agent[]>([]);
   const [selected, setSelected] = React.useState<Selected | null>(null);
   const [visibility, setVisibility] = React.useState<Record<string, string[]>>({});
@@ -699,6 +700,14 @@ export default function SkillsPage() {
   const selectedSkill = selected
     ? skills.find((s) => s.name === selected.skill) ?? null
     : null;
+  const normalizedSkillQuery = skillQuery.trim().toLocaleLowerCase();
+  const visibleSkills = skills.filter((skill) => {
+    const matchesQuery =
+      !normalizedSkillQuery ||
+      skill.name.toLocaleLowerCase().includes(normalizedSkillQuery) ||
+      (skill.description ?? "").toLocaleLowerCase().includes(normalizedSkillQuery);
+    return matchesQuery;
+  });
 
   return (
     <div data-content-padding="false" className="flex flex-1 flex-col overflow-hidden">
@@ -736,6 +745,10 @@ export default function SkillsPage() {
       <div className="flex flex-1 overflow-hidden">
         {/* ── 左侧文件树 ── */}
         <div className="flex w-64 shrink-0 flex-col border-r">
+          <div className="space-y-2 border-b p-2">
+            <Input aria-label="搜索技能" placeholder="搜索名称或说明" value={skillQuery} onChange={(event) => setSkillQuery(event.target.value)} />
+            <p className="text-[10px] text-muted-foreground">显示 {visibleSkills.length} / {skills.length} 个技能</p>
+          </div>
           <div className="flex flex-col gap-2 border-b p-2">
             <Button size="sm" variant="outline" className="w-full" onClick={() => setNewOpen(true)}>
               <PlusIcon className="size-3.5" />新建 Skill
@@ -764,7 +777,7 @@ export default function SkillsPage() {
               widening the rows past the sidebar. */}
           <ScrollArea className="flex-1 [&>[data-slot=scroll-area-viewport]>div]:!block">
             <div className="p-1">
-              {skills.map((s) => {
+              {visibleSkills.map((s) => {
                 const isOpen = expanded.has(s.name);
                 const tree = buildTree(s.files);
                 const isSkillSelected = selected?.skill === s.name && selected.path === null;
@@ -826,7 +839,7 @@ export default function SkillsPage() {
                 );
               })}
 
-              {skills.length === 0 && (
+              {visibleSkills.length === 0 && (
                 <p className="p-3 text-xs text-muted-foreground">暂无 Skill，点击「新建」开始</p>
               )}
             </div>

@@ -785,6 +785,15 @@ export default function FindingsPage() {
     onDeepen: openDeepen,
     onDelete: deleteFinding,
   };
+  const findingsEmptyMessage =
+    flat.total === 0 &&
+    query.length === 0 &&
+    severity === "all" &&
+    status === "all" &&
+    vulnclass === "all" &&
+    task === "all"
+      ? "暂无发现，任务产生的发现会显示在这里。"
+      : "没有匹配的发现，请调整搜索词或筛选条件。";
 
   // 平铺视图与资产视图右侧是同一张表 + 同一份分页,只是筛选条件不同。
   const flatListCard = (
@@ -796,7 +805,12 @@ export default function FindingsPage() {
           </div>
         ) : (
           <>
-            <FindingsTable items={flat.items} selectAllLabel="选择当前页全部" {...rowProps} />
+            <FindingsTable
+              items={flat.items}
+              selectAllLabel="选择当前页全部"
+              emptyMessage={findingsEmptyMessage}
+              {...rowProps}
+            />
             <TablePagination
               page={flatPage}
               pageSize={flatPageSize}

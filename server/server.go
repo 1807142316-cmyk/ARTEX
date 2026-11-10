@@ -755,6 +755,11 @@ func (s *Server) Handler() http.Handler {
 	mux.HandleFunc("POST /api/companies/{id}/scope", s.addCompanyScope)
 	mux.HandleFunc("POST /api/companies/reattribute", s.reattribute)
 
+	// CVE metadata is imported and searched locally; requests require the standard JWT middleware.
+	mux.HandleFunc("POST /api/cve/import", s.importCVERecords)
+	mux.HandleFunc("GET /api/cve", s.searchCVERecords)
+	mux.HandleFunc("GET /api/cve/stats", s.cveRecordStats)
+
 	mux.HandleFunc("GET /api/exploration/frontier", s.frontier)
 	mux.HandleFunc("GET /api/exploration/findings", s.findings)
 	mux.HandleFunc("GET /api/exploration/findings/groups", s.findingGroups)
@@ -858,6 +863,8 @@ func (s *Server) Handler() http.Handler {
 	mux.HandleFunc("PUT /api/agents/{key}/visibility", s.pgSetAgentVisibility)
 	// 内置工具目录（描述/参数默认值可改、按 agent 绑定；key 与 handler 在代码层）
 	mux.HandleFunc("GET /api/tools", s.pgListTools)
+	mux.HandleFunc("GET /api/scan-templates", s.listScanTemplates)
+	mux.HandleFunc("POST /api/scan-templates", s.importScanTemplate)
 	mux.HandleFunc("PUT /api/tools/{key}", s.pgUpdateTool)
 	mux.HandleFunc("POST /api/tools/custom", s.pgCreateCustomTool)
 	mux.HandleFunc("POST /api/tools/custom/test", s.pgTestCustomTool)
