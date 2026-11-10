@@ -244,8 +244,9 @@ type Manager struct {
 	// (http/https/socks5, optional user:pass). Empty = direct. When traffic
 	// capture is on it becomes the MITM's upstream; when capture is off it is
 	// injected into agent bash env / WebFetch directly. See ProxyAddr.
-	globalProxy string
-	taskEnrich  func(string) agent.EnrichTrigger
+	globalProxy          string
+	taskEnrich           func(string) agent.EnrichTrigger
+	invalidateTaskEgress func(string)
 }
 
 // Settings keys the UI toggles at runtime.
@@ -1277,6 +1278,9 @@ func (m *Manager) ApplyTaskPause(id string) error {
 		})
 	}
 	m.mu.Unlock()
+	if m.invalidateTaskEgress != nil {
+		m.invalidateTaskEgress(id)
+	}
 	return nil
 }
 
@@ -1416,6 +1420,9 @@ func (m *Manager) SetTaskStatusGuarded(id, status string) (won bool, err error) 
 		})
 	}
 	m.mu.Unlock()
+	if m.invalidateTaskEgress != nil {
+		m.invalidateTaskEgress(id)
+	}
 	return true, nil
 }
 
@@ -1447,6 +1454,9 @@ func (m *Manager) SetTaskStatus(id, status string) error {
 		})
 	}
 	m.mu.Unlock()
+	if pgdb.IsTerminal(status) && m.invalidateTaskEgress != nil {
+		m.invalidateTaskEgress(id)
+	}
 	return nil
 }
 
@@ -1556,6 +1566,9 @@ func rollbackTaskDelete(cause error, trafficStage *traffic.HostDeleteStage, file
 }
 
 func (m *Manager) forgetTask(id string, numericID int64) {
+	if m.invalidateTaskEgress != nil {
+		m.invalidateTaskEgress(id)
+	}
 	m.mu.Lock()
 	delete(m.tasks, id)
 	for _, task := range m.tasks {

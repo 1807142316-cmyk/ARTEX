@@ -31,6 +31,9 @@ type taskProxyGateway struct {
 	server         *http.Server
 	address, token string
 	taskID         int64
+	mu             sync.Mutex
+	requests       map[*context.CancelFunc]struct{}
+	changing       int
 }
 type proxyPoolService struct {
 	s          *Server
@@ -42,6 +45,7 @@ type proxyPoolService struct {
 func (s *Server) initProxyPool() {
 	p := &proxyPoolService{s: s, gateways: map[int64]*taskProxyGateway{}, recordings: map[string]string{}}
 	s.proxyPool = p
+	s.m.invalidateTaskEgress = func(id string) { n, _ := strconv.ParseInt(id, 10, 64); p.invalidate(n) }
 	s.m.taskEnrich = func(id string) agent.EnrichTrigger {
 		if !s.m.pg.GetBool(settingProxyPool, false) {
 			return s.m.enrich
@@ -70,6 +74,7 @@ func (s *Server) initProxyPool() {
 			case <-s.ctx.Done():
 				p.mu.Lock()
 				for _, g := range p.gateways {
+					g.cancelRequests()
 					_ = g.server.Close()
 				}
 				p.mu.Unlock()
@@ -81,6 +86,53 @@ func (s *Server) initProxyPool() {
 			}
 		}
 	}()
+}
+
+func (g *taskProxyGateway) cancelRequests() {
+	g.mu.Lock()
+	defer g.mu.Unlock()
+	for cancel := range g.requests {
+		(*cancel)()
+	}
+	g.requests = map[*context.CancelFunc]struct{}{}
+}
+func (p *proxyPoolService) invalidate(id int64) {
+	p.mu.Lock()
+	g := p.gateways[id]
+	p.mu.Unlock()
+	if g != nil {
+		g.cancelRequests()
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+	_ = p.s.m.pg.PauseTaskEgress(ctx, id, "task lifecycle changed")
+}
+func (p *proxyPoolService) changeRoute(id int64) func() {
+	_, _ = p.gateway(id)
+	p.mu.Lock()
+	g := p.gateways[id]
+	p.mu.Unlock()
+	if g == nil {
+		return func() {}
+	}
+	g.mu.Lock()
+	g.changing++
+	for cancel := range g.requests {
+		(*cancel)()
+	}
+	g.requests = map[*context.CancelFunc]struct{}{}
+	g.mu.Unlock()
+	return func() { g.mu.Lock(); g.changing--; g.mu.Unlock() }
+}
+func (g *taskProxyGateway) requestContext(parent context.Context) (context.Context, func()) {
+	ctx, cancel := context.WithCancel(parent)
+	g.mu.Lock()
+	if g.changing > 0 {
+		cancel()
+	}
+	g.requests[&cancel] = struct{}{}
+	g.mu.Unlock()
+	return ctx, func() { cancel(); g.mu.Lock(); delete(g.requests, &cancel); g.mu.Unlock() }
 }
 
 type taskEgressEnricher struct {
@@ -141,7 +193,7 @@ func (p *proxyPoolService) gateway(taskID int64) (string, error) {
 		ln.Close()
 		return "", e
 	}
-	g := &taskProxyGateway{address: "http://" + ln.Addr().String(), taskID: taskID, token: base64.RawURLEncoding.EncodeToString(tokenBytes)}
+	g := &taskProxyGateway{address: "http://" + ln.Addr().String(), taskID: taskID, token: base64.RawURLEncoding.EncodeToString(tokenBytes), requests: map[*context.CancelFunc]struct{}{}}
 	g.server = &http.Server{ReadHeaderTimeout: 10 * time.Second, Handler: http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) { p.forward(g, w, r) })}
 	p.gateways[taskID] = g
 	p.recordings[g.token] = g.address
@@ -191,6 +243,10 @@ func (p *proxyPoolService) route(ctx context.Context, id int64) (string, error) 
 	return raw, nil
 }
 func (p *proxyPoolService) failed(ctx context.Context, lease *db.TaskEgress) (string, error) {
+	finishChange := p.changeRoute(lease.TaskID)
+	// Invalidating cancels the triggering request too; persist policy on a fresh bounded context.
+	ctx, cancel := context.WithTimeout(p.s.ctx, 10*time.Second)
+	defer cancel()
 	var next *db.TaskEgress
 	var e error
 	switch lease.Policy {
@@ -203,11 +259,15 @@ func (p *proxyPoolService) failed(ctx context.Context, lease *db.TaskEgress) (st
 	}
 	if e != nil || next == nil {
 		p.pause(lease.TaskID, "proxy unavailable; task paused")
+		finishChange()
 		return "", errors.New("task proxy unavailable; task paused")
 	}
+	finishChange()
 	return p.route(ctx, lease.TaskID)
 }
 func (p *proxyPoolService) pause(id int64, message string) {
+	finishChange := p.changeRoute(id)
+	defer finishChange()
 	_ = p.s.m.pg.PauseTaskEgress(context.Background(), id, message)
 	if t, ok := p.s.m.Task(strconv.FormatInt(id, 10)); ok {
 		_, _ = p.s.applyTaskControlWithCause(t, "pause", errors.New(message))
@@ -228,6 +288,9 @@ func (p *proxyPoolService) observeFailure(ctx context.Context, id int64) {
 	}
 }
 func (p *proxyPoolService) forward(g *taskProxyGateway, w http.ResponseWriter, r *http.Request) {
+	ctx, finish := g.requestContext(r.Context())
+	defer finish()
+	r = r.WithContext(ctx)
 	if !p.s.m.pg.GetBool(settingProxyPool, false) {
 		http.Error(w, "task proxy pool is disabled", 503)
 		return
@@ -240,6 +303,10 @@ func (p *proxyPoolService) forward(g *taskProxyGateway, w http.ResponseWriter, r
 	upstream, e := p.route(r.Context(), g.taskID)
 	if e != nil {
 		http.Error(w, e.Error(), 503)
+		return
+	}
+	if r.Context().Err() != nil {
+		http.Error(w, "task route changed", 503)
 		return
 	}
 	recorded := false
@@ -331,7 +398,7 @@ func (p *proxyPoolService) tunnel(g *taskProxyGateway, w http.ResponseWriter, r 
 	_, _ = buffer.WriteString("HTTP/1.1 200 Connection Established\r\n\r\n")
 	_ = buffer.Flush()
 	done := make(chan struct{})
-	stop := context.AfterFunc(p.s.ctx, func() { local.Close(); remote.Close() })
+	stop := context.AfterFunc(r.Context(), func() { local.Close(); remote.Close() })
 	defer stop()
 	go func() { _, _ = io.Copy(remote, buffer); remote.Close(); close(done) }()
 	_, _ = io.Copy(local, remote)
@@ -355,6 +422,12 @@ func (p *proxyPoolService) check(ctx context.Context, endpoint *db.ProxyEndpoint
 		return e
 	}
 	response, e := client.Do(request)
+	if ctx.Err() != nil {
+		if response != nil && response.Body != nil {
+			response.Body.Close()
+		}
+		return ctx.Err()
+	}
 	exit := ""
 	message := "proxy health check failed"
 	if e == nil {
@@ -382,6 +455,9 @@ func (p *proxyPoolService) check(ctx context.Context, endpoint *db.ProxyEndpoint
 	healthy := exit != ""
 	if healthy {
 		message = ""
+	}
+	if ctx.Err() != nil {
+		return ctx.Err()
 	}
 	if e = p.s.m.pg.SetProxyHealth(ctx, endpoint.ID, healthy, exit, message); e != nil {
 		return e
@@ -418,6 +494,9 @@ func (p *proxyPoolService) checkActive() {
 	}
 	p.mu.Unlock()
 	for _, id := range tasks {
+		if ctx.Err() != nil {
+			return
+		}
 		task, err := p.s.m.pg.GetTask(id)
 		if err != nil {
 			continue
@@ -425,6 +504,7 @@ func (p *proxyPoolService) checkActive() {
 		if task == nil || isTerminalStatus(task.Status) {
 			p.mu.Lock()
 			if g := p.gateways[id]; g != nil {
+				g.cancelRequests()
 				_ = g.server.Close()
 				delete(p.recordings, g.token)
 				delete(p.gateways, id)
@@ -565,6 +645,11 @@ func (s *Server) putProxySettings(w http.ResponseWriter, r *http.Request) {
 				return
 			}
 		}
+		s.proxyPool.mu.Lock()
+		for _, g := range s.proxyPool.gateways {
+			g.cancelRequests()
+		}
+		s.proxyPool.mu.Unlock()
 	}
 	if e := s.m.pg.SetBool(settingProxyPool, request.Enabled); e != nil {
 		writeErr(w, 500, "save settings failed")
@@ -604,7 +689,9 @@ func (s *Server) taskEgress(w http.ResponseWriter, r *http.Request) {
 		if request.ProxyID == 0 && lease != nil && lease.State == "active" && lease.Policy == request.Policy {
 			e = nil
 		} else {
+			finishChange := s.proxyPool.changeRoute(id)
 			lease, e = s.m.pg.AssignTaskEgress(r.Context(), id, request.ProxyID, request.Policy, "assigned")
+			finishChange()
 		}
 	}
 	if e != nil {

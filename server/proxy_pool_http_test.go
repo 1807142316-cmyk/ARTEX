@@ -1,6 +1,7 @@
 package server
 
 import (
+	"bufio"
 	"bytes"
 	"context"
 	"encoding/json"
@@ -488,5 +489,94 @@ func TestProxyPoolSOCKS5HealthAndHTTPForwarding(t *testing.T) {
 	resp.Body.Close()
 	if string(body) != "socks route" || connections.Load() < 2 {
 		t.Fatalf("socks response %s,connections%d", body, connections.Load())
+	}
+}
+
+func TestProxyPoolPauseClosesEstablishedTunnelBeforeEndpointReuse(t *testing.T) {
+	m := newProxyPoolTestManager(t)
+	defer m.Close()
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	s := New(ctx, m, t.TempDir(), t.TempDir(), t.TempDir())
+	token, _ := signJWT(s.jwtKey)
+	h := s.Handler()
+	api := func(method, path string, payload any) (int, map[string]any) {
+		b, _ := json.Marshal(payload)
+		r := httptest.NewRequest(method, path, bytes.NewReader(b))
+		r.Header.Set("Authorization", "Bearer "+token)
+		w := httptest.NewRecorder()
+		h.ServeHTTP(w, r)
+		var out map[string]any
+		_ = json.Unmarshal(w.Body.Bytes(), &out)
+		return w.Code, out
+	}
+	proxy := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != "CONNECT" {
+			fmt.Fprint(w, `{"ip":"192.0.2.111"}`)
+			return
+		}
+		conn, buffer, e := w.(http.Hijacker).Hijack()
+		if e != nil {
+			return
+		}
+		defer conn.Close()
+		buffer.WriteString("HTTP/1.1 200 Connection Established\r\n\r\n")
+		buffer.Flush()
+		io.Copy(conn, buffer)
+	}))
+	defer proxy.Close()
+	code, out := api("POST", "/api/proxies", map[string]any{"name": "tunnel", "url": proxy.URL, "enabled": true, "check_url": "http://proxy-check.test/exit"})
+	if code != 201 {
+		t.Fatalf("create%d %v", code, out)
+	}
+	id := out["id"]
+	api("POST", fmt.Sprintf("/api/proxies/%.0f/check", id), nil)
+	api("PUT", "/api/proxies/settings", map[string]any{"enabled": true})
+	defer api("PUT", "/api/proxies/settings", map[string]any{"enabled": false})
+	task, err := m.CreateTask("tunnel pause", "egress", nil, 0, 300)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer api("DELETE", "/api/tasks/"+task.ID, nil)
+	_, out = api("POST", "/api/tasks/"+task.ID+"/egress", map[string]any{})
+	u, _ := url.Parse(out["proxy_url"].(string))
+	conn, err := net.Dial("tcp", u.Host)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer conn.Close()
+	fmt.Fprint(conn, "CONNECT target.test:443 HTTP/1.1\r\nHost: target.test:443\r\n\r\n")
+	reader := bufio.NewReader(conn)
+	response, err := http.ReadResponse(reader, &http.Request{Method: "CONNECT"})
+	if err != nil || response.StatusCode != 200 {
+		t.Fatalf("CONNECT%v %v", response, err)
+	}
+	fmt.Fprint(conn, "before")
+	got := make([]byte, 6)
+	conn.SetReadDeadline(time.Now().Add(2 * time.Second))
+	if _, err = io.ReadFull(reader, got); err != nil || string(got) != "before" {
+		t.Fatalf("initial echo %q %v", got, err)
+	}
+	code, out = api("POST", "/api/tasks/"+task.ID+"/control", map[string]any{"action": "pause"})
+	if code != 200 {
+		t.Fatalf("pause%d %v", code, out)
+	}
+	conn.SetReadDeadline(time.Now().Add(time.Second))
+	fmt.Fprint(conn, "after")
+	_, err = reader.ReadByte()
+	if err == nil {
+		t.Fatal("paused task retained established tunnel")
+	}
+	if neterr, ok := err.(net.Error); ok && neterr.Timeout() {
+		t.Fatal("paused tunnel remained open until timeout")
+	}
+	other, e := m.CreateTask("reuse closed tunnel", "egress", nil, 0, 300)
+	if e != nil {
+		t.Fatal(e)
+	}
+	defer api("DELETE", "/api/tasks/"+other.ID, nil)
+	code, out = api("POST", "/api/tasks/"+other.ID+"/egress", map[string]any{})
+	if code != 200 || out["proxy_id"] != id {
+		t.Fatalf("released endpoint not reusable: %d %v", code, out)
 	}
 }
