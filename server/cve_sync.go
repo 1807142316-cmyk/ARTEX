@@ -279,7 +279,9 @@ func (c *cveSyncService) prepare(ctx context.Context, run *db.CVESyncRun) error 
 	if baseline == nil {
 		return errors.New("CVE release has no baseline archive")
 	}
-	if release.Tag != status.SourceVersion && status.BaselineName == baseline.Name && status.LastSuccess != nil && delta == nil {
+	// Official midnight releases are baseline-only. Other changed releases must
+	// include their cumulative delta, including the first import of a new day.
+	if release.Tag != status.SourceVersion && !strings.HasSuffix(release.Tag, "_0000Z") && delta == nil {
 		return errors.New("CVE release is incomplete: changed source version has no delta archive")
 	}
 	// Hourly deltas are cumulative only since the daily baseline. Reapply the new

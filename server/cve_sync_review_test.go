@@ -28,6 +28,9 @@ func TestCVESyncWaitsForCompleteReleaseAndRetriesMalformedArchive(t *testing.T) 
 		if r.URL.Path == "/latest" {
 			assets := []map[string]string{{"name": "2099-03-01_all_CVEs_at_midnight.zip", "browser_download_url": upstream.URL + "/baseline.zip"}}
 			tag := "initial-release"
+			if stage.Load() == 0 {
+				assets = append(assets, map[string]string{"name": "2099-03-01_delta_CVEs_at_0000.zip", "browser_download_url": upstream.URL + "/initial-delta.zip"})
+			}
 			if stage.Load() > 0 {
 				tag = "next-release"
 				if stage.Load() > 1 {
