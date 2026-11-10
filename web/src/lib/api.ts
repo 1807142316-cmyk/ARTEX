@@ -1216,6 +1216,7 @@ export const api = {
   // ---- skills (文件系统) ----
   skills: () => get<{ skills: SkillItem[] }>("/skills").then((r) => arr(r.skills)),
   createSkill: (s: {
+    category?: string;
     name: string;
     description: string;
     license?: string;
@@ -1242,7 +1243,7 @@ export const api = {
   deleteSkill: (name: string) => del<{ deleted: string }>(`/skills/${name}`),
   updateSkillMeta: (
     name: string,
-    meta: { mcps?: string[]; description?: string; license?: string; compatibility?: string },
+    meta: { category?: string; mcps?: string[]; description?: string; license?: string; compatibility?: string },
   ) => put<{ ok: boolean }>(`/skills/${name}/meta`, meta),
   createSkillDir: (skill: string, path: string) => post<{ dir: string }>(`/skills/${skill}/dirs`, { path }),
   skillFiles: (name: string) => get<{ files: string[] }>(`/skills/${name}/files`).then((r) => r.files),

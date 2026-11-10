@@ -296,6 +296,8 @@ function SkillsOverview({
 export default function SkillsPage() {
   const [skills, setSkills] = React.useState<SkillItem[]>([]);
   const [skillQuery, setSkillQuery] = React.useState("");
+  const [categoryFilter, setCategoryFilter] = React.useState("all");
+  const [detailCategory, setDetailCategory] = React.useState("");
   const [agents, setAgents] = React.useState<Agent[]>([]);
   const [selected, setSelected] = React.useState<Selected | null>(null);
   const [visibility, setVisibility] = React.useState<Record<string, string[]>>({});
@@ -318,6 +320,7 @@ export default function SkillsPage() {
   const [newOpen, setNewOpen] = React.useState(false);
   const [newName, setNewName] = React.useState("");
   const [newDesc, setNewDesc] = React.useState("");
+  const [newCategory, setNewCategory] = React.useState("");
   const [newLicense, setNewLicense] = React.useState("");
   const [newCompat, setNewCompat] = React.useState("");
   const [newInst, setNewInst] = React.useState("");
@@ -398,6 +401,7 @@ export default function SkillsPage() {
     if (!selected || selected.path !== null) return;
     const sk = skills.find((s) => s.name === selected.skill);
     setDetailMcps(sk?.mcps ?? []);
+    setDetailCategory(sk?.category ?? "");
   }, [selected, skills]);
 
   // Recent calls for the selected skill (detail panel only).
@@ -572,7 +576,7 @@ export default function SkillsPage() {
     try {
       const name = newName.trim();
       await api.createSkill({
-        name, description: newDesc.trim(),
+        name, description: newDesc.trim(), category: newCategory.trim(),
         license: newLicense.trim() || undefined,
         compatibility: newCompat.trim() || undefined,
         mcps: newMcps.length ? newMcps : undefined,
@@ -582,7 +586,7 @@ export default function SkillsPage() {
       await Promise.all(newVisibility.map((id) => api.toggleSkillVisibility(id, name, true)));
       toast.success("已创建 Skill");
       setNewOpen(false);
-      setNewName(""); setNewDesc(""); setNewLicense(""); setNewCompat(""); setNewInst("");
+      setNewName(""); setNewDesc(""); setNewCategory(""); setNewLicense(""); setNewCompat(""); setNewInst("");
       setNewMcps([]); setNewVisibility([]);
       load();
     } catch (e) {
@@ -700,13 +704,15 @@ export default function SkillsPage() {
   const selectedSkill = selected
     ? skills.find((s) => s.name === selected.skill) ?? null
     : null;
+  const categories = [...new Set(skills.map((skill) => skill.category?.trim() || "未分类"))].sort();
   const normalizedSkillQuery = skillQuery.trim().toLocaleLowerCase();
   const visibleSkills = skills.filter((skill) => {
     const matchesQuery =
       !normalizedSkillQuery ||
       skill.name.toLocaleLowerCase().includes(normalizedSkillQuery) ||
-      (skill.description ?? "").toLocaleLowerCase().includes(normalizedSkillQuery);
-    return matchesQuery;
+      (skill.description ?? "").toLocaleLowerCase().includes(normalizedSkillQuery) ||
+      (skill.category ?? "").toLocaleLowerCase().includes(normalizedSkillQuery);
+    return matchesQuery && (categoryFilter === "all" || (skill.category?.trim() || "未分类") === categoryFilter);
   });
 
   return (
@@ -746,7 +752,14 @@ export default function SkillsPage() {
         {/* ── 左侧文件树 ── */}
         <div className="flex w-64 shrink-0 flex-col border-r">
           <div className="space-y-2 border-b p-2">
-            <Input aria-label="搜索技能" placeholder="搜索名称或说明" value={skillQuery} onChange={(event) => setSkillQuery(event.target.value)} />
+            <Input aria-label="搜索技能" placeholder="搜索名称、说明或分类" value={skillQuery} onChange={(event) => setSkillQuery(event.target.value)} />
+            <label className="block text-xs text-muted-foreground">
+              分类
+              <select aria-label="技能分类筛选" className="mt-1 w-full rounded-md border bg-background p-1.5 text-foreground" value={categoryFilter} onChange={(event) => setCategoryFilter(event.target.value)}>
+                <option value="all">全部分类</option>
+                {categories.map((category) => <option key={category} value={category}>{category}</option>)}
+              </select>
+            </label>
             <p className="text-[10px] text-muted-foreground">显示 {visibleSkills.length} / {skills.length} 个技能</p>
           </div>
           <div className="flex flex-col gap-2 border-b p-2">
@@ -840,7 +853,7 @@ export default function SkillsPage() {
               })}
 
               {visibleSkills.length === 0 && (
-                <p className="p-3 text-xs text-muted-foreground">暂无 Skill，点击「新建」开始</p>
+                <p className="p-3 text-xs text-muted-foreground">{skills.length === 0 ? "暂无 Skill，点击「新建」开始" : "没有匹配的技能，请调整搜索或分类"}</p>
               )}
             </div>
           </ScrollArea>
@@ -864,6 +877,7 @@ export default function SkillsPage() {
                   <p className="mt-1 text-sm text-muted-foreground">{selectedSkill.description}</p>
                 )}
                 <div className="mt-2 flex flex-wrap gap-2">
+                  <Badge variant="outline">{selectedSkill.category || "未分类"}</Badge>
                   {selectedSkill.license && (
                     <Badge variant="outline" className="text-xs font-normal">License: {selectedSkill.license}</Badge>
                   )}
@@ -928,6 +942,16 @@ export default function SkillsPage() {
 
                 {/* ── 左侧：关联 MCP + 可见性 ── */}
                 <div className="space-y-5 lg:min-w-0 lg:flex-1">
+                  <div className="space-y-2">
+                    <Label htmlFor="skill-category">分类</Label>
+                    <div className="flex gap-2">
+                      <Input id="skill-category" maxLength={100} placeholder="未分类" value={detailCategory} onChange={(event) => setDetailCategory(event.target.value)} />
+                      <Button variant="outline" disabled={detailCategory === (selectedSkill.category ?? "")} onClick={async () => {
+                        try { await api.updateSkillMeta(selectedSkill.name, { category: detailCategory.trim() }); toast.success("分类已保存"); load(); }
+                        catch (error) { toast.error("保存失败：" + (error as Error).message); }
+                      }}>保存</Button>
+                    </div>
+                  </div>
                   <div className="space-y-2">
                     <Label className="text-xs text-muted-foreground">
                       关联 MCP
@@ -1064,6 +1088,10 @@ export default function SkillsPage() {
                 <Textarea id="sk-desc" rows={2} className="resize-none"
                   placeholder="这个 skill 做什么、何时使用。"
                   value={newDesc} onChange={(e) => setNewDesc(e.target.value)} />
+              </div>
+              <div className="grid gap-1.5">
+                <Label htmlFor="new-skill-category">分类</Label>
+                <Input id="new-skill-category" maxLength={100} value={newCategory} onChange={(event) => setNewCategory(event.target.value)} placeholder="未分类" />
               </div>
               <div className="grid grid-cols-2 gap-3">
                 <div className="grid gap-1.5">

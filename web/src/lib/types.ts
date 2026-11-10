@@ -1237,6 +1237,7 @@ export interface MCPTool {
 // Fields align with the agentskills.io open specification.
 // description covers both "what the skill does" and "when to use it".
 export interface SkillItem {
+  category?: string; // blank = unclassified
   name: string; // unique key = directory name
   description?: string; // required per spec; covers what + when to use
   license?: string; // optional: SPDX identifier or free text
