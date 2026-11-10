@@ -1,6 +1,7 @@
 package db
 
 import (
+	"bytes"
 	"database/sql"
 	"encoding/json"
 	"errors"
@@ -49,7 +50,8 @@ type Task struct {
 	// 覆盖度、不自动累积 task_scope(source=auto)、不给 agent 开放 add_task_scope/
 	// list_untested_assets、态势里不注入 coverage 块(scope 字段仍保留)。company 关联
 	// (task_scope kind=company)与此开关无关，永不受影响。见 db/task_scope.go。
-	CoverageEnabled bool `json:"coverage_enabled"`
+	CoverageEnabled  bool `json:"coverage_enabled"`
+	IdempotentReplay bool `json:"-"`
 }
 
 // TaskDeleteResult reports optional related-data cleanup performed in the same
@@ -96,8 +98,9 @@ const MaxTaskCompanyCount = 32
 const taskCompanyAssetSource = "company"
 
 var (
-	ErrTaskCompanyIDsInvalid = errors.New("invalid task company ids")
-	ErrTaskCompanyNotFound   = errors.New("task company not found")
+	ErrTaskCompanyIDsInvalid   = errors.New("invalid task company ids")
+	ErrTaskCompanyNotFound     = errors.New("task company not found")
+	ErrTaskIdempotencyConflict = errors.New("idempotency key was already used with a different request")
 )
 
 // NormalizeTaskCompanyIDs validates IDs and removes duplicates while retaining
@@ -155,7 +158,9 @@ type TaskCreateOptions struct {
 	// 路径(编排 spawn、老 API)沿用原行为。仅 web 创建任务时可显式传 false 关闭。
 	CoverageEnabled *bool
 	// InterceptRules 是任务级资产拦截规则,创建时随任务在同一事务内写入 task_intercept_rules。
-	InterceptRules []TaskInterceptRuleInput
+	InterceptRules         []TaskInterceptRuleInput
+	IdempotencyKey         string
+	IdempotencyFingerprint []byte
 }
 
 // CreateTaskWithOptions creates an exploration, task, direct source relations,
@@ -174,6 +179,37 @@ func (d *DB) CreateTaskWithOptions(description, goal string, opts TaskCreateOpti
 		return nil, err
 	}
 	defer tx.Rollback()
+	if opts.IdempotencyKey != "" {
+		if len(opts.IdempotencyFingerprint) != 32 {
+			return nil, fmt.Errorf("invalid task idempotency fingerprint")
+		}
+		if _, err := tx.Exec(`SELECT pg_advisory_xact_lock(hashtextextended($1, 0))`, opts.IdempotencyKey); err != nil {
+			return nil, err
+		}
+		var existingID int64
+		var existingFingerprint []byte
+		err := tx.QueryRow(`SELECT task_id, fingerprint FROM task_creation_requests WHERE idempotency_key=$1`, opts.IdempotencyKey).Scan(&existingID, &existingFingerprint)
+		if err == nil {
+			if !bytes.Equal(existingFingerprint, opts.IdempotencyFingerprint) {
+				return nil, ErrTaskIdempotencyConflict
+			}
+			if err := tx.Rollback(); err != nil && err != sql.ErrTxDone {
+				return nil, err
+			}
+			existing, err := d.GetTask(existingID)
+			if err != nil {
+				return nil, err
+			}
+			if existing == nil {
+				return nil, fmt.Errorf("idempotent task %d no longer exists", existingID)
+			}
+			existing.IdempotentReplay = true
+			return existing, nil
+		}
+		if err != sql.ErrNoRows {
+			return nil, err
+		}
+	}
 	var expID int64
 	if err := tx.QueryRow(`INSERT INTO explorations(description, goal) VALUES ($1,$2) RETURNING id`, description, goal).Scan(&expID); err != nil {
 		return nil, err
@@ -242,6 +278,11 @@ RETURNING id, status, paused, created_at`, opts.Name, opts.CategoryID, descripti
 	}
 	if err := insertTaskInterceptRules(tx, t.ID, opts.InterceptRules); err != nil {
 		return nil, err
+	}
+	if opts.IdempotencyKey != "" {
+		if _, err := tx.Exec(`INSERT INTO task_creation_requests(idempotency_key, fingerprint, task_id) VALUES ($1,$2,$3)`, opts.IdempotencyKey, opts.IdempotencyFingerprint, t.ID); err != nil {
+			return nil, err
+		}
 	}
 	if len(opts.LLMProfileIDs) == 0 {
 		t.LLMFailoverState = "default"

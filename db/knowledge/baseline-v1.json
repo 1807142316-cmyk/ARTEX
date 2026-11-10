@@ -1,0 +1,62 @@
+[
+  {
+    "code": "ARTEX-WEB-SQL-PARAMETERS",
+    "category": "web",
+    "kind": "validation-remediation",
+    "tier": "high",
+    "summary": "SQL query parameterization: trace database call sites, verify input remains data, and record remediation evidence.",
+    "body": "Applicability\nApplications that build SQL from HTTP parameters, imported records, background jobs, or stored user-controlled values.\n\nValidation\n1. Map each input to its database call site using source review and application tracing. Record the framework, driver, query builder and bind API.\n2. Confirm values use bound parameters. Review dynamic table names, column names and sort direction separately; parameter binding usually does not support identifiers.\n3. In a controlled test record, use ordinary values containing quotes and Unicode. A correct query preserves the full value as data and does not change query structure. Record the redacted request shape and parameter-binding call.\n4. Check second-order paths where a stored value is later interpolated into a query.\n\nRemediation\nUse prepared statements or the driver's bind API for values. Map dynamic identifiers to a server-maintained allowlist. Give the database identity only necessary privileges. Escaping and input blacklists are not the primary query boundary.\n\nAcceptance\nInputs are compared literally, SQL logging separates statement from parameters, and dynamic identifiers accept only allowed values. Review the code change and rerun the affected application tests.\n\nTools\nUse the database driver, a SQL logger with value redaction and the application's test runner. This original ARTEX guidance is informed by the OWASP SQL Injection Prevention Cheat Sheet. Keep cookies, account IDs and query results in task evidence rather than this reusable body.",
+    "source_url": "https://cheatsheetseries.owasp.org/cheatsheets/SQL_Injection_Prevention_Cheat_Sheet.html",
+    "source_version": "artex-authored-baseline-v1"
+  },
+  {
+    "code": "ARTEX-WEB-OBJECT-AUTHORIZATION",
+    "category": "web",
+    "kind": "validation-remediation",
+    "tier": "high",
+    "summary": "Object authorization: compare two controlled identities and check server-side tenant, ownership and operation permissions.",
+    "body": "Applicability\nAPIs and pages using object IDs, tenant IDs, document keys, export IDs or nested resource references.\n\nValidation\n1. Prepare two test accounts with different ownership or tenant membership and one test object per account. Record expected permissions first.\n2. With the first identity, perform normal reads and updates on its own object. Save a redacted baseline response and identify where the object ID is supplied.\n3. Use the second test object's ID while retaining the first identity. Check both the response and persisted state; an error page alone does not prove that a write was prevented.\n4. Cover listing, export, download and nested routes. Evaluate each operation and tenant boundary. Unpredictable IDs do not replace authorization.\n\nRemediation\nLoad records through queries scoped to the caller's tenant or ownership and check the requested operation on the server. Deny by default. Put shared checks at a service or repository boundary used by alternate routes and background jobs.\n\nAcceptance\nCross-owner and cross-tenant reads do not expose test contents; writes do not mutate them; permitted operations remain usable. Tests assert database state as well as HTTP status.\n\nTools\nUse the application's API client, browser developer tools and integration test runner. This original guidance is informed by the OWASP Authorization Cheat Sheet. Store actual account IDs and Authorization headers only in task evidence.",
+    "source_url": "https://cheatsheetseries.owasp.org/cheatsheets/Authorization_Cheat_Sheet.html",
+    "source_version": "artex-authored-baseline-v1"
+  },
+  {
+    "code": "ARTEX-WEB-COOKIE-CONTROLS",
+    "category": "web",
+    "kind": "configuration-review",
+    "tier": "medium",
+    "summary": "Session cookie review: inspect actual Set-Cookie attributes, rotation, expiry, logout and supported browser behavior.",
+    "body": "Applicability\nBrowser applications using cookies for authentication or session continuity.\n\nValidation\n1. Inspect login and renewal responses in browser developer tools. Read actual Set-Cookie headers rather than relying on frontend configuration.\n2. Record attribute names: Secure limits transport, HttpOnly prevents document.cookie access, SameSite controls cross-site sending, and Domain/Path limit scope.\n3. Confirm session IDs rotate after login and privilege changes. Verify logout invalidates server-side state and renewal respects absolute and idle expiry.\n4. Exercise normal navigation and cross-site callback paths with supported browsers. SameSite defaults and None-without-Secure behavior vary across clients.\n\nRemediation\nUse Secure and HttpOnly for authentication cookies. Choose SameSite for the application's actual flows, with explicit CSRF defenses where required. Keep Domain and Path narrow. Rotate on authentication and privilege changes; invalidate on logout. Never log session values.\n\nAcceptance\nEvery path that creates or renews the cookie issues the expected attributes. A logged-out token cannot resume a session. Supported login and third-party callback flows continue to work.\n\nTools\nUse browser network/storage panels and HTTP integration tests for headers and expiry. This original guidance is informed by OWASP's Session Management Cheat Sheet. Reusable reports retain cookie names and flags, never active values.",
+    "source_url": "https://cheatsheetseries.owasp.org/cheatsheets/Session_Management_Cheat_Sheet.html",
+    "source_version": "artex-authored-baseline-v1"
+  },
+  {
+    "code": "ARTEX-TLS-CERTIFICATE",
+    "category": "transport",
+    "kind": "configuration-review",
+    "tier": "medium",
+    "summary": "TLS certificate inventory: check chain, hostname, expiry and trust with OpenSSL without application credentials.",
+    "body": "Applicability\nTLS services with a known DNS name and port. This check evaluates transport identity, not application authentication.\n\nValidation\n1. Set TLS_HOST and TLS_PORT to the service's real client-facing DNS name and port. Using the hostname matters for SNI and hostname validation.\n2. Run: openssl s_client -connect \"${TLS_HOST}:${TLS_PORT}\" -servername \"${TLS_HOST}\" -verify_hostname \"${TLS_HOST}\" -verify_return_error -showcerts </dev/null\n3. Inspect verification status, issuer chain, subject alternative names and validity dates. A missing private root in the client trust store differs from a hostname mismatch.\n4. Check actual load-balancer and ingress routes, rather than only a backend. Track expiry and the owning service for each certificate.\n\nRemediation\nInstall the correct leaf and intermediates. Renew before expiry, reload ingress configuration and verify the reload succeeded. Restrict private-key access and replace exposed keys.\n\nAcceptance\nOpenSSL validates the intended hostname and chain against the correct trust store. Supported application clients connect, and monitoring alerts before the renewal threshold.\n\nTools\nThe OpenSSL s_client command performs a TLS handshake and reads certificates; it needs no application credentials. The command is based on OpenSSL's official documentation. Keep private hostnames in task inventory when required; public certificate fields can support general guidance.",
+    "source_url": "https://docs.openssl.org/3.5/man1/openssl-s_client/",
+    "source_version": "artex-authored-baseline-v1; OpenSSL 3.5 documentation"
+  },
+  {
+    "code": "ARTEX-CVE-APPLICABILITY",
+    "category": "intelligence",
+    "kind": "triage-checklist",
+    "tier": "medium",
+    "summary": "CVE applicability: distinguish a metadata match from an evidence-supported affected-version and configuration conclusion.",
+    "body": "Applicability\nA CVE record matches a discovered product, package or service. A name match is a lead and does not establish a confirmed vulnerability.\n\nValidation\n1. Check record state and retain source revision and update time. Rejected records must not be treated as active findings.\n2. Compare vendor, product, ecosystem and deployment role. Normalize names while keeping original product evidence in task storage.\n3. Determine installed versions through package metadata, a software bill of materials, vendor build information or configuration evidence. Banners can omit downstream fixes.\n4. Evaluate affected ranges, version semantics, platform constraints and configuration prerequisites separately. Unknown version or configuration produces an inconclusive conclusion.\n5. Follow the vendor advisory. Consider distribution backports instead of comparing only upstream version strings.\n\nRemediation\nApply the vendor-supported fixed release or mitigation with a rollback plan, then retest the affected configuration.\n\nAcceptance\nThe finding cites its CVE revision, reliable version/configuration evidence, applicability reasoning and vendor remediation reference. Insufficient evidence leaves the record unconfirmed.\n\nTools\nUse the local CVE catalog, vendor advisories and the package manager's read-only inventory. CVEProject's official cve-schema defines state, affected products, versions and references. This original workflow contains no exploitation code or private evidence.",
+    "source_url": "https://github.com/CVEProject/cve-schema",
+    "source_version": "artex-authored-baseline-v1"
+  },
+  {
+    "code": "ARTEX-KB-EVIDENCE-REDACTION",
+    "category": "knowledge",
+    "kind": "review-checklist",
+    "tier": "low",
+    "summary": "Knowledge review: preserve reusable conditions and reasoning while retaining credentials and target evidence in separate records.",
+    "body": "Applicability\nKnowledge candidates derived from task execution, reports, imports or external advisories.\n\nReview\n1. Identify the reusable principle: product family, configuration, method, expected observation, remediation and limitations. Rewrite it independently of the target organization.\n2. Keep raw requests, response bodies, private addresses, tenant IDs, personal data, cookies, API keys and passwords in restricted task evidence or credential storage. Reference evidence from verification notes instead of copying it into reusable text.\n3. Check source URLs, query strings, titles and code blocks as well as prose. Remove credentials and target identifiers from every reusable field. Public advisory URLs may remain.\n4. Record provenance and version. A reputable imported article is not automatically verified; independently verify the current entry's claims and scope.\n5. Record a separate review decision. Publication requires this review and successful current-version verification. Content edits require new decisions.\n\nAcceptance\nAgent retrieval returns reviewed content and public provenance. Verification evidence and review notes stay in authenticated management history. Revoked or changed entries leave execution search until revalidated and republished.\n\nTools\nUse ARTEX knowledge history, its verification/review actions and task evidence storage. This original checklist is informed by OWASP's Logging Cheat Sheet guidance on excluded data. Context-dependent identifiers still require human review.",
+    "source_url": "https://cheatsheetseries.owasp.org/cheatsheets/Logging_Cheat_Sheet.html",
+    "source_version": "artex-authored-baseline-v1"
+  }
+]

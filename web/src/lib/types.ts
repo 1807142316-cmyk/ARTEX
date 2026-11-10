@@ -39,6 +39,8 @@ export interface Task {
   archive_blocked_by_task_id?: string; // live direct dependent that must be archived first
   company_ids?: number[]; // associated company scopes; current company assets join the task at creation
   coverage_enabled?: boolean; // 资产覆盖度功能开关(创建时定,默认开)；false=不计算/不展示覆盖度
+  timeout_seconds?: number;
+  plan_heartbeat_seconds?: number;
 }
 
 export interface TaskCategory {
@@ -58,6 +60,51 @@ export interface TaskTemplate {
   intercept_rules?: AssetInterceptRuleInput[]; // 预设的任务级拦截/允许规则
   created_at: string;
   updated_at: string;
+}
+
+export interface KnowledgeEntry {
+  id: number;
+  code: string;
+  category: string;
+  kind: string;
+  tier: string;
+  summary: string;
+  body?: string;
+  source_url: string;
+  source_version: string;
+  content_version: number;
+  published: boolean;
+  verified: boolean;
+  verification_result?: string;
+  reviewed: boolean;
+  revoked: boolean;
+  use_count: number;
+  created_at: string;
+  updated_at: string;
+}
+
+export type KnowledgeInput = Pick<
+  KnowledgeEntry,
+  "code" | "category" | "kind" | "tier" | "summary" | "body" | "source_url" | "source_version"
+>;
+
+export interface KnowledgeHistory {
+  versions: (KnowledgeInput & { version: number; content_hash: string; created_at: string })[];
+  verifications: {
+    version: number;
+    result: "passed" | "failed";
+    evidence: string;
+    verified_by: string;
+    created_at: string;
+  }[];
+  reviews: {
+    version: number;
+    approved: boolean;
+    redacted: boolean;
+    notes: string;
+    reviewed_by: string;
+    created_at: string;
+  }[];
 }
 
 export interface DeleteTaskOptions {
@@ -1256,8 +1303,18 @@ export interface ScanTemplate {
 }
 
 // ---- Stats ----
+export interface SystemMetrics {
+  scope: "container" | "process" | "unavailable";
+  source: string;
+  sampled_at: string;
+  cpu: { unit: "percent"; percent: number | null; limit_cores: number | null; window_seconds: number };
+  memory: { unit: "bytes"; used: number | null; limit: number | null };
+  error?: string;
+}
+
 export interface Stats {
   assets: number;
+  traffic?: number;
   engine_mode: EngineMode;
   llm_configured: boolean;
   roe_enabled: boolean;

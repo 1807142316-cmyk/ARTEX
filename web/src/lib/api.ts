@@ -54,6 +54,9 @@ import type {
   InterceptRule,
   JudgeConfig,
   JudgeUsage,
+  KnowledgeEntry,
+  KnowledgeHistory,
+  KnowledgeInput,
   LLMPoolStatus,
   LLMProfile,
   LLMRecordDetail,
@@ -80,6 +83,7 @@ import type {
   SSProject,
   SSTask,
   Stats,
+  SystemMetrics,
   Task,
   TaskArchive,
   TaskArchivePage,
@@ -199,8 +203,12 @@ export function sseUrl(path: string): string {
 }
 
 const get = <T>(p: string) => http<T>(p);
-const post = <T>(p: string, body?: unknown) =>
-  http<T>(p, { method: "POST", body: body ? JSON.stringify(body) : undefined });
+const post = <T>(p: string, body?: unknown, idempotencyKey?: string) =>
+  http<T>(p, {
+    method: "POST",
+    body: body ? JSON.stringify(body) : undefined,
+    headers: idempotencyKey ? { "Idempotency-Key": idempotencyKey } : undefined,
+  });
 const put = <T>(p: string, body?: unknown) =>
   http<T>(p, { method: "PUT", body: body ? JSON.stringify(body) : undefined });
 const patch = <T>(p: string, body?: unknown) =>
@@ -248,34 +256,41 @@ export const api = {
   tasks: () =>
     get<{ tasks: Task[]; active: string }>("/tasks").then((r) => ({ tasks: arr(r.tasks), active: r.active ?? "" })),
   task: (id: string) => get<Task>(`/tasks/${encodeURIComponent(id)}`),
-  createTask: (input: {
-    name?: string;
-    categoryId?: number;
-    description: string;
-    goal: string;
-    llmProfileIds?: number[];
-    sourceTaskIds?: string[];
-    companyIds?: number[];
-    timeoutSeconds?: number;
-    seedFirstIntent?: boolean;
-    planHeartbeatSeconds?: number;
-    coverageEnabled?: boolean;
-    interceptRules?: AssetInterceptRuleInput[];
-  }) =>
-    post<Task>("/tasks", {
-      name: input.name ?? "",
-      category_id: input.categoryId ?? null,
-      description: input.description,
-      goal: input.goal,
-      llm_profile_ids: input.llmProfileIds ?? [],
-      source_task_ids: input.sourceTaskIds ?? [],
-      company_ids: input.companyIds ?? [],
-      timeout_seconds: input.timeoutSeconds ?? 0,
-      seed_first_intent: input.seedFirstIntent ?? false,
-      plan_heartbeat_seconds: input.planHeartbeatSeconds ?? 0, // 0 = 后端归一到默认 600(10min)
-      coverage_enabled: input.coverageEnabled ?? true, // 默认开;false=关闭资产覆盖度功能
-      intercept_rules: input.interceptRules ?? [], // 任务级资产拦截规则
-    }),
+  createTask: (
+    input: {
+      name?: string;
+      categoryId?: number;
+      description: string;
+      goal: string;
+      llmProfileIds?: number[];
+      sourceTaskIds?: string[];
+      companyIds?: number[];
+      timeoutSeconds?: number;
+      seedFirstIntent?: boolean;
+      planHeartbeatSeconds?: number;
+      coverageEnabled?: boolean;
+      interceptRules?: AssetInterceptRuleInput[];
+    },
+    options?: { idempotencyKey?: string },
+  ) =>
+    post<Task>(
+      "/tasks",
+      {
+        name: input.name ?? "",
+        category_id: input.categoryId ?? null,
+        description: input.description,
+        goal: input.goal,
+        llm_profile_ids: input.llmProfileIds ?? [],
+        source_task_ids: input.sourceTaskIds ?? [],
+        company_ids: input.companyIds ?? [],
+        timeout_seconds: input.timeoutSeconds ?? 0,
+        seed_first_intent: input.seedFirstIntent ?? false,
+        plan_heartbeat_seconds: input.planHeartbeatSeconds ?? 0, // 0 = 后端归一到默认 600(10min)
+        coverage_enabled: input.coverageEnabled ?? true, // 默认开;false=关闭资产覆盖度功能
+        intercept_rules: input.interceptRules ?? [], // 任务级资产拦截规则
+      },
+      options?.idempotencyKey,
+    ),
   taskCategories: () => get<{ categories: TaskCategory[] }>("/task-categories").then((r) => arr(r.categories)),
   updateTask: (id: string, input: { name?: string; pinned?: boolean }) => patch<Task>(`/tasks/${id}`, input),
   renameTask: (id: string, name: string) => patch<Task>(`/tasks/${id}`, { name }),
@@ -367,6 +382,7 @@ export const api = {
   setActive: (id: string) => post<{ active: string }>("/active", { id }),
   // ---- stats ----
   stats: (task?: string) => get<Stats>(`/stats${tq(task)}`),
+  systemMetrics: () => get<SystemMetrics>("/system/metrics"),
   // 资产测试覆盖度(粗估，供参考)：范围内资产被 fact 碰过的占比 + 按类型的 总数/已测。
   taskCoverage: (id: string) =>
     get<{
@@ -557,6 +573,52 @@ export const api = {
   findingAssetTree: (q: Omit<FindingQuery, "page" | "pageSize">) =>
     get<FindingAssetTree>(`/exploration/findings/asset-tree?${findingFilterParams(q).toString()}`),
   findingStats: () => get<FindingStats>("/exploration/findings/stats"),
+  knowledge: (
+    params: {
+      q?: string;
+      category?: string;
+      kind?: string;
+      tier?: string;
+      verified?: boolean;
+      published?: boolean;
+      page?: number;
+      limit?: number;
+    } = {},
+  ) => {
+    const query = new URLSearchParams();
+    for (const [key, value] of Object.entries(params))
+      if (value !== undefined && value !== "") query.set(key, String(value));
+    return get<{ items: KnowledgeEntry[]; total: number; page: number; limit: number }>(
+      `/knowledge?${query.toString()}`,
+    );
+  },
+  createKnowledge: (
+    entry: Pick<
+      KnowledgeEntry,
+      "code" | "category" | "kind" | "tier" | "summary" | "body" | "source_url" | "source_version"
+    >,
+  ) => post<KnowledgeEntry>("/knowledge", entry),
+  updateKnowledge: (
+    id: number,
+    patch: Partial<
+      Pick<KnowledgeEntry, "code" | "category" | "kind" | "tier" | "summary" | "body" | "source_url" | "source_version">
+    >,
+  ) => http<KnowledgeEntry>(`/knowledge/${id}`, { method: "PATCH", body: JSON.stringify(patch) }),
+  verifyKnowledge: (
+    id: number,
+    content_version: number,
+    result: "passed" | "failed",
+    evidence: string,
+    verified_by = "operator",
+  ) => post<KnowledgeEntry>(`/knowledge/${id}/verification`, { content_version, result, evidence, verified_by }),
+  importKnowledge: (items: KnowledgeInput[]) =>
+    post<{ created: number; skipped: number }>("/knowledge/import", { items }),
+  knowledgeHistory: (id: number) => get<KnowledgeHistory>(`/knowledge/${id}/history`),
+  reviewKnowledge: (id: number, content_version: number, approved: boolean, redacted: boolean, notes: string) =>
+    post<KnowledgeEntry>(`/knowledge/${id}/review`, { content_version, approved, redacted, notes }),
+  publishKnowledge: (id: number) => post<KnowledgeEntry>(`/knowledge/${id}/publish`, {}),
+  revokeKnowledge: (id: number) => post<KnowledgeEntry>(`/knowledge/${id}/revoke`, {}),
+  retrieveKnowledge: (id: number, call_id: string) => post<KnowledgeEntry>(`/knowledge/${id}/retrieve`, { call_id }),
   // exportFindings 触发发现页导出并下载文件。scope=selected 时传 ids(finding_id 列表);
   // scope=filtered 时传当前筛选(沿用 FindingQuery 的筛选字段);scope=all 忽略筛选。
   exportFindings: async (opts: {
@@ -826,8 +888,7 @@ export const api = {
   // 渠道是多实例资源（同一类型可配多个机器人、各有过滤规则），因此独立成组，
   // 不塞进扁平的 settings 键值里。
   notifyMeta: () => get<NotificationMeta>(`/notify/meta`),
-  notifyChannels: () =>
-    get<{ channels: NotificationChannel[] }>(`/notify/channels`).then((r) => arr(r.channels)),
+  notifyChannels: () => get<{ channels: NotificationChannel[] }>(`/notify/channels`).then((r) => arr(r.channels)),
   notifyCreateChannel: (payload: {
     name: string;
     kind: string;
