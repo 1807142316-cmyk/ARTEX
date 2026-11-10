@@ -214,8 +214,14 @@ func (p *proxyPoolService) current(ctx context.Context, id int64) (*db.TaskEgres
 	return lease, nil
 }
 func (p *proxyPoolService) route(ctx context.Context, id int64) (string, error) {
+	if err := ctx.Err(); err != nil {
+		return "", err
+	}
 	lease, e := p.current(ctx, id)
 	if e != nil {
+		if ctx.Err() != nil || errors.Is(e, context.Canceled) || errors.Is(e, context.DeadlineExceeded) {
+			return "", e
+		}
 		p.pause(id, "no healthy task egress")
 		return "", e
 	}
@@ -291,6 +297,10 @@ func (p *proxyPoolService) forward(g *taskProxyGateway, w http.ResponseWriter, r
 	ctx, finish := g.requestContext(r.Context())
 	defer finish()
 	r = r.WithContext(ctx)
+	if ctx.Err() != nil {
+		http.Error(w, "task route changed", 503)
+		return
+	}
 	if !p.s.m.pg.GetBool(settingProxyPool, false) {
 		http.Error(w, "task proxy pool is disabled", 503)
 		return

@@ -245,6 +245,7 @@ type Manager struct {
 	// capture is on it becomes the MITM's upstream; when capture is off it is
 	// injected into agent bash env / WebFetch directly. See ProxyAddr.
 	globalProxy          string
+	invalidateTaskScans  func(string)
 	taskEnrich           func(string) agent.EnrichTrigger
 	invalidateTaskEgress func(string)
 }
@@ -1152,6 +1153,9 @@ func (m *Manager) SetTaskPaused(id string, paused bool) error {
 		})
 	}
 	m.mu.Unlock()
+	if paused && m.invalidateTaskScans != nil {
+		m.invalidateTaskScans(id)
+	}
 	return nil
 }
 
@@ -1278,6 +1282,9 @@ func (m *Manager) ApplyTaskPause(id string) error {
 		})
 	}
 	m.mu.Unlock()
+	if m.invalidateTaskScans != nil {
+		m.invalidateTaskScans(id)
+	}
 	if m.invalidateTaskEgress != nil {
 		m.invalidateTaskEgress(id)
 	}
@@ -1420,6 +1427,9 @@ func (m *Manager) SetTaskStatusGuarded(id, status string) (won bool, err error) 
 		})
 	}
 	m.mu.Unlock()
+	if m.invalidateTaskScans != nil {
+		m.invalidateTaskScans(id)
+	}
 	if m.invalidateTaskEgress != nil {
 		m.invalidateTaskEgress(id)
 	}
@@ -1454,6 +1464,9 @@ func (m *Manager) SetTaskStatus(id, status string) error {
 		})
 	}
 	m.mu.Unlock()
+	if pgdb.IsTerminal(status) && m.invalidateTaskScans != nil {
+		m.invalidateTaskScans(id)
+	}
 	if pgdb.IsTerminal(status) && m.invalidateTaskEgress != nil {
 		m.invalidateTaskEgress(id)
 	}
@@ -1466,6 +1479,8 @@ func (m *Manager) SetTaskStatus(id, status string) error {
 // staged while PostgreSQL excludes asset/anchor writers. Both are restored on a
 // database failure and purged only after its commit.
 func (m *Manager) DeleteTask(id string, opts DeleteTaskOptions) (DeleteTaskResult, error) {
+	m.taskStateMu.Lock()
+	defer m.taskStateMu.Unlock()
 	result := DeleteTaskResult{Deleted: id}
 	n, err := strconv.ParseInt(id, 10, 64)
 	if err != nil {
@@ -1566,6 +1581,9 @@ func rollbackTaskDelete(cause error, trafficStage *traffic.HostDeleteStage, file
 }
 
 func (m *Manager) forgetTask(id string, numericID int64) {
+	if m.invalidateTaskScans != nil {
+		m.invalidateTaskScans(id)
+	}
 	if m.invalidateTaskEgress != nil {
 		m.invalidateTaskEgress(id)
 	}

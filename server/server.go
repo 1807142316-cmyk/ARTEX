@@ -123,6 +123,8 @@ type Server struct {
 	cveSync          *cveSyncService
 	metrics          resourceSampler
 	templateRunSlots chan struct{}
+	templateRunsMu   sync.Mutex
+	templateTaskRuns map[string]map[int64]context.CancelFunc
 	proxyPool        *proxyPoolService
 }
 
@@ -157,6 +159,8 @@ func New(ctx context.Context, m *Manager, skillDir string, dataDir string, keyDi
 		provByProfile:  map[int64]*provEntry{}, llmHealth: newLLMHealthRegistry(m.pg),
 		taskAgents: map[string]*taskAgentBundle{}, archiveWake: make(chan struct{}, 1), templateRunSlots: make(chan struct{}, 2)}
 	s.initSideQuestions()
+	s.templateTaskRuns = make(map[string]map[int64]context.CancelFunc)
+	m.invalidateTaskScans = s.cancelTaskTemplateRuns
 	s.initProxyPool()
 	// 熔断阈值/冷却是失败路径上的热参数，启动时把全局重试策略推给 Registry 一次；
 	// 之后每次保存策略再推一次（saveLLMRetryPolicy）。
