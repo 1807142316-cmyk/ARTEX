@@ -18,6 +18,8 @@ bind mounts. A local `content/` directory mounts read-only at `/app/content`.
 
 The local delivery content directory contains the official CVE release archive
 and `content/cve/manifest.json`, which records its source URL, release and SHA-256.
+The same manifest is tracked at `content-manifests/cve-baseline.json`, so a fresh
+checkout retains the download and integrity information without the large ZIP.
 It is a data artifact excluded from Git and the Docker build context. Preserve
 this directory with the deployment or download the release URL recorded in the
 manifest. CVE content follows the CVE Program terms linked in that manifest.
