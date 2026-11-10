@@ -48,8 +48,11 @@ type cveContainer struct {
 		Value    string `json:"value"`
 	} `json:"descriptions"`
 	Affected []struct {
-		Vendor  string `json:"vendor"`
-		Product string `json:"product"`
+		Vendor       string   `json:"vendor"`
+		Product      string   `json:"product"`
+		Modules      []string `json:"modules"`
+		ProgramFiles []string `json:"programFiles"`
+		CPEs         []string `json:"cpes"`
 	} `json:"affected"`
 	References []struct {
 		URL string `json:"url"`
@@ -95,6 +98,11 @@ func ParseRecord(raw json.RawMessage, sourceVersion string) (Record, error) {
 			}
 		}
 		for _, affected := range container.Affected {
+			for _, component := range append(append(affected.Modules, affected.ProgramFiles...), affected.CPEs...) {
+				if component = strings.TrimSpace(component); component != "" {
+					productSet[component] = struct{}{}
+				}
+			}
 			vendor, product := strings.TrimSpace(affected.Vendor), strings.TrimSpace(affected.Product)
 			if product == "" {
 				continue

@@ -7,6 +7,7 @@ import {
   Brain,
   Bug,
   ClipboardList,
+  Database,
   FolderOpen,
   FolderSync,
   LayoutDashboard,
@@ -95,7 +96,10 @@ export const sidebarItems: NavGroup[] = [
   {
     id: 4,
     label: "知识库",
-    items: [{ id: "knowledge", title: "武器库", url: "/knowledge", icon: BookOpen }],
+    items: [
+      { id: "knowledge", title: "武器库", url: "/knowledge", icon: BookOpen },
+      { id: "cve", title: "CVE 语料", url: "/intelligence/cve", icon: Database },
+    ],
   },
   {
     id: 5,
@@ -117,8 +121,6 @@ export const sidebarItems: NavGroup[] = [
   {
     id: 6,
     label: "情报",
-    items: [
-      { id: "scan-templates", title: "扫描模板", url: "/intelligence/templates", icon: ScanSearch },
-    ],
+    items: [{ id: "scan-templates", title: "扫描模板", url: "/intelligence/templates", icon: ScanSearch }],
   },
 ];
