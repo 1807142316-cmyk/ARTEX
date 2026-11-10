@@ -169,7 +169,9 @@ type Traffic struct {
 	// through (nil = dial targets directly). Both the intercepted and the
 	// transparent-passthrough paths honor it (go-mitmproxy's getUpstreamConn),
 	// so no host escapes it. Hot-swappable at runtime via SetUpstreamProxy.
-	upstream atomic.Pointer[url.URL]
+	upstream       atomic.Pointer[url.URL]
+	taskResolverMu sync.RWMutex
+	taskResolver   func(string) (*url.URL, error)
 }
 
 // Open initializes the traffic tree, blob store and SQLite index under dir.
@@ -218,7 +220,7 @@ func Open(dir, addr string) (*Traffic, error) {
 	// a direct dial. When a global egress proxy IS configured (SetUpstreamProxy),
 	// every captured request — intercepted AND transparently tunneled — is
 	// forwarded through it instead, so no host leaks the real source IP.
-	p.SetUpstreamProxy(func(*http.Request) (*url.URL, error) { return t.upstream.Load(), nil })
+	p.SetUpstreamProxy(t.requestUpstream)
 	// Fail-open: MITM every host by default, EXCEPT ones a prior request proved we
 	// can't intercept without breaking (see maybePassthrough). Those are tunneled
 	// transparently so the request still reaches the target instead of being killed.
@@ -309,6 +311,44 @@ func (t *Traffic) ProxyAddr() string {
 	return "http://" + t.addr
 }
 
+// SetTaskUpstreamResolver routes authenticated task recording requests through
+// their task gateway. Credentials are consumed before recording or forwarding.
+func (t *Traffic) SetTaskUpstreamResolver(resolve func(string) (*url.URL, error)) {
+	t.taskResolverMu.Lock()
+	t.taskResolver = resolve
+	t.taskResolverMu.Unlock()
+}
+
+type taskRouteKey struct{}
+
+func (t *Traffic) requestUpstream(r *http.Request) (*url.URL, error) {
+	if route, ok := r.Context().Value(taskRouteKey{}).(*url.URL); ok {
+		return route, nil
+	}
+	auth := r.Header.Get("Proxy-Authorization")
+	if auth == "" {
+		return t.upstream.Load(), nil
+	}
+	credentials := &http.Request{Header: http.Header{"Authorization": []string{auth}}}
+	user, token, ok := credentials.BasicAuth()
+	if !ok || user != "artex-task" {
+		return nil, errors.New("invalid task recording proxy authentication")
+	}
+	t.taskResolverMu.RLock()
+	resolve := t.taskResolver
+	t.taskResolverMu.RUnlock()
+	if resolve == nil {
+		return nil, errors.New("task recording routing is unavailable")
+	}
+	u, err := resolve(token)
+	if err != nil {
+		return nil, err
+	}
+	r.Header.Del("Proxy-Authorization")
+	*r = *r.WithContext(context.WithValue(r.Context(), taskRouteKey{}, u))
+	return u, nil
+}
+
 // SetUpstreamProxy points every captured request at a global egress proxy
 // (http/https/socks5, optional user:pass in the URL). An empty raw string clears
 // it, restoring direct dialing. The change is atomic and takes effect on the next
@@ -394,6 +434,18 @@ func (s *sink) Response(f *mproxy.Flow) {
 		return
 	}
 	s.t.record(f)
+}
+
+func (s *sink) Requestheaders(f *mproxy.Flow) {
+	if f.Request == nil {
+		return
+	}
+	// Proxy authorization is transport metadata, never target evidence.
+	// The upstream resolver consumes it later from the original request.
+	if f.Request.Header.Get("Proxy-Authorization") != "" {
+		f.Request.Header = f.Request.Header.Clone()
+		f.Request.Header.Del("Proxy-Authorization")
+	}
 }
 
 // RequestError fires when a request through an established MITM tunnel fails. If
