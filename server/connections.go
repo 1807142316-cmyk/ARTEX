@@ -795,89 +795,150 @@ func (s *Server) runConnectionOperation(w http.ResponseWriter, r *http.Request) 
 	if !connectionBody(w, r, &input) {
 		return
 	}
-	input.RequestID = strings.TrimSpace(input.RequestID)
-	input.Cmd = strings.TrimSpace(input.Cmd)
-	if input.RequestID == "" || len(input.RequestID) > 128 {
-		writeErr(w, 400, "request_id is required and limited to 128 bytes")
-		return
-	}
 	if input.AdapterID != nil && *input.AdapterID != adapter.ID {
 		writeErr(w, 409, "session belongs to a different adapter")
 		return
 	}
-	action := strings.TrimSpace(input.Action)
-	unsupported := !connectionSupports(action)
-	if unsupported {
-		argsSummary := connectionArgsSummary(input)
-		record, replayed, err := s.m.pg.StartConnectionOperation(r.Context(), adapter.ID, item.ID, input.RequestID, action, argsSummary)
-		if err != nil {
-			writeErr(w, 500, "record operation failed")
-			return
-		}
-		if replayed {
-			writeJSON(w, 200, record)
-			return
-		}
-		record, err = s.m.pg.FinishConnectionOperation(r.Context(), record.ID, "unsupported", nil, "", fmt.Sprintf("action %q is not declared by the http_phpcmd adapter", action))
-		if err != nil {
-			writeErr(w, 500, "record operation failed")
-			return
-		}
-		writeJSON(w, 422, record)
-		return
-	}
-	if err := validateConnectionArgs(input); err != nil {
-		writeErr(w, 400, err.Error())
-		return
-	}
-	if !adapter.Enabled {
-		writeErr(w, 409, "adapter is disabled")
-		return
-	}
-	if item.EffectiveState != "connected" {
-		writeErr(w, 409, "session is "+item.EffectiveState+"; run a sync before executing")
-		return
-	}
-	summary := connectionArgsSummary(input)
-	record, replayed, err := s.m.pg.StartConnectionOperation(r.Context(), adapter.ID, item.ID, input.RequestID, action, summary)
+	record, replayed, err := s.executeConnectionOperation(r.Context(), item.ID, connectionOpRequest{
+		Action:    input.Action,
+		Cmd:       input.Cmd,
+		Argv:      input.Argv,
+		TimeoutMS: input.TimeoutMS,
+		RequestID: input.RequestID,
+	})
 	if err != nil {
+		var opErr *connectionOpError
+		if errors.As(err, &opErr) {
+			writeErr(w, opErr.status, opErr.message)
+			return
+		}
 		writeErr(w, 500, "record operation failed")
 		return
 	}
-	if replayed {
-		writeJSON(w, 200, record)
+	// A rejected capability is still a recorded outcome, so it carries the
+	// stored record. A replayed request keeps the plain 200 a retry deserves.
+	if record.Status == "unsupported" && !replayed {
+		writeJSON(w, 422, record)
 		return
 	}
-	client, err := s.shellClientFor(r.Context(), adapter)
+	writeJSON(w, 200, record)
+}
+
+// connectionOpError is a validation or lookup failure with the HTTP status the
+// API contract assigns it. Keeping the status on the error lets the same code
+// path serve the HTTP handler and the worker's intranet executor.
+type connectionOpError struct {
+	status  int
+	message string
+}
+
+func (e *connectionOpError) Error() string { return e.message }
+
+func opErrorf(status int, format string, args ...any) *connectionOpError {
+	return &connectionOpError{status: status, message: fmt.Sprintf(format, args...)}
+}
+
+// connectionOpRequest is the normalized form of one operation. The HTTP handler
+// builds it from the request body; the intranet executor builds it from a tool
+// call. Everything downstream treats them identically.
+type connectionOpRequest struct {
+	Action    string
+	Cmd       string
+	Argv      []string
+	TimeoutMS int
+	RequestID string
+}
+
+// executeConnectionOperation validates, records and performs one operation on a
+// session. Every outcome — including a refused capability — is written to
+// connection_operations before it is returned, so neither caller can report an
+// action that left no trace.
+func (s *Server) executeConnectionOperation(ctx context.Context, sessionID int64, req connectionOpRequest) (db.ConnectionOperation, bool, error) {
+	req.RequestID = strings.TrimSpace(req.RequestID)
+	req.Cmd = strings.TrimSpace(req.Cmd)
+	if req.RequestID == "" || len(req.RequestID) > 128 {
+		return db.ConnectionOperation{}, false, opErrorf(400, "request_id is required and limited to 128 bytes")
+	}
+	if sessionID < 1 {
+		return db.ConnectionOperation{}, false, opErrorf(400, "invalid session id")
+	}
+	item, _, err := s.m.pg.GetInventorySession(ctx, sessionID)
+	if errors.Is(err, sql.ErrNoRows) {
+		return db.ConnectionOperation{}, false, opErrorf(404, "session not found")
+	}
 	if err != nil {
-		finished, ferr := s.m.pg.FinishConnectionOperation(r.Context(), record.ID, "failed", nil, "", "stored credential could not be opened")
-		if ferr != nil {
-			writeErr(w, 500, "record operation failed")
-			return
+		return db.ConnectionOperation{}, false, err
+	}
+	adapterID := connectionAdapterIDFromSource(item.Source)
+	if adapterID == 0 {
+		return db.ConnectionOperation{}, false, opErrorf(409, "session is not linked to a connection adapter")
+	}
+	adapter, err := s.m.pg.ConnectionAdapter(ctx, adapterID)
+	if err != nil {
+		return db.ConnectionOperation{}, false, err
+	}
+	if adapter == nil {
+		return db.ConnectionOperation{}, false, opErrorf(409, "the adapter that created this session no longer exists")
+	}
+	input := connectionOperationInput{Action: req.Action, Cmd: req.Cmd, Argv: req.Argv, TimeoutMS: req.TimeoutMS, RequestID: req.RequestID}
+	action := strings.TrimSpace(req.Action)
+	if !connectionSupports(action) {
+		record, replayed, err := s.m.pg.StartConnectionOperation(ctx, adapter.ID, item.ID, req.RequestID, action, connectionArgsSummary(input))
+		if err != nil {
+			return db.ConnectionOperation{}, false, err
 		}
-		writeJSON(w, 200, finished)
-		return
+		if replayed {
+			return record, true, nil
+		}
+		record, err = s.m.pg.FinishConnectionOperation(ctx, record.ID, "unsupported", nil, "", fmt.Sprintf("action %q is not declared by the http_phpcmd adapter", action))
+		if err != nil {
+			return db.ConnectionOperation{}, false, err
+		}
+		return record, false, nil
 	}
-	request := shellRequest{V: 1, ID: input.RequestID, Action: action, Nonce: connectionNonce(), TS: time.Now().Unix()}
+	if err := validateConnectionArgs(input); err != nil {
+		return db.ConnectionOperation{}, false, opErrorf(400, "%s", err.Error())
+	}
+	if !adapter.Enabled {
+		return db.ConnectionOperation{}, false, opErrorf(409, "adapter is disabled")
+	}
+	if item.EffectiveState != "connected" {
+		return db.ConnectionOperation{}, false, opErrorf(409, "session is %s; run a sync before executing", item.EffectiveState)
+	}
+	record, replayed, err := s.m.pg.StartConnectionOperation(ctx, adapter.ID, item.ID, req.RequestID, action, connectionArgsSummary(input))
+	if err != nil {
+		return db.ConnectionOperation{}, false, err
+	}
+	if replayed {
+		return record, true, nil
+	}
+	client, err := s.shellClientFor(ctx, adapter)
+	if err != nil {
+		finished, ferr := s.m.pg.FinishConnectionOperation(ctx, record.ID, "failed", nil, "", "stored credential could not be opened")
+		if ferr != nil {
+			return db.ConnectionOperation{}, false, ferr
+		}
+		return finished, false, nil
+	}
+	request := shellRequest{V: 1, ID: req.RequestID, Action: action, Nonce: connectionNonce(), TS: time.Now().Unix()}
 	args := map[string]any{}
-	if input.TimeoutMS > 0 {
-		args["timeout_ms"] = input.TimeoutMS
+	if req.TimeoutMS > 0 {
+		args["timeout_ms"] = req.TimeoutMS
 	}
-	switch action {
-	case "exec":
-		if len(input.Argv) > 0 {
-			args["argv"] = input.Argv
+	if action == "exec" {
+		if len(req.Argv) > 0 {
+			args["argv"] = req.Argv
 		} else {
-			request.Cmd = input.Cmd
-			args["cmd"] = input.Cmd
+			request.Cmd = req.Cmd
+			args["cmd"] = req.Cmd
 		}
 	}
 	if len(args) > 0 {
 		request.Args = args
 	}
 	deadline := client.timeout
-	if input.TimeoutMS > 0 {
-		requested := time.Duration(input.TimeoutMS) * time.Millisecond
+	if req.TimeoutMS > 0 {
+		requested := time.Duration(req.TimeoutMS) * time.Millisecond
 		if requested < deadline {
 			deadline = requested
 		}
@@ -885,7 +946,7 @@ func (s *Server) runConnectionOperation(w http.ResponseWriter, r *http.Request) 
 	if deadline > connectionMaxTimeout {
 		deadline = connectionMaxTimeout
 	}
-	exchangeCtx, cancel := context.WithTimeout(r.Context(), deadline)
+	exchangeCtx, cancel := context.WithTimeout(ctx, deadline)
 	result, exchangeErr := client.exchange(exchangeCtx, request)
 	cancel()
 	if exchangeErr != nil {
@@ -895,13 +956,11 @@ func (s *Server) runConnectionOperation(w http.ResponseWriter, r *http.Request) 
 			status = "timeout"
 			message = fmt.Sprintf("operation exceeded %s", deadline)
 		}
-		finished, ferr := s.m.pg.FinishConnectionOperation(r.Context(), record.ID, status, nil, "", message)
+		finished, ferr := s.m.pg.FinishConnectionOperation(ctx, record.ID, status, nil, "", message)
 		if ferr != nil {
-			writeErr(w, 500, "record operation failed")
-			return
+			return db.ConnectionOperation{}, false, ferr
 		}
-		writeJSON(w, 200, finished)
-		return
+		return finished, false, nil
 	}
 	status := "succeeded"
 	if result.TimedOut {
@@ -918,12 +977,11 @@ func (s *Server) runConnectionOperation(w http.ResponseWriter, r *http.Request) 
 	if status == "timeout" && errorText == "" {
 		errorText = "remote shell reported a timeout"
 	}
-	finished, err := s.m.pg.FinishConnectionOperation(r.Context(), record.ID, status, result.ExitCode, output, errorText)
+	finished, err := s.m.pg.FinishConnectionOperation(ctx, record.ID, status, result.ExitCode, output, errorText)
 	if err != nil {
-		writeErr(w, 500, "record operation failed")
-		return
+		return db.ConnectionOperation{}, false, err
 	}
-	writeJSON(w, 200, finished)
+	return finished, false, nil
 }
 
 func connectionSupports(action string) bool {

@@ -10,8 +10,11 @@ change or remote disconnect is implemented through the observation API.
 A real execution adapter was added in issue #9 (see **C2/WebShell adapters**
 below): `http_phpcmd` writes its own observations through this same inventory
 (`source=connection:<adapterID>`, `protocol_label=http_phpcmd`) and executes
-`ping`/`info`/`exec` against a configured HTTP/PHP endpoint. Issue #10's topology
-and intranet work remains separate.
+`ping`/`info`/`exec` against a configured HTTP/PHP endpoint, and the same
+executor backs the #10 worker seam: `intranet_exec` runs through
+`intranetAdapterExecutor`, which re-reads the session per call, verifies task
+ownership and effective state, and reports exit code, stderr and timeouts as
+tool-visible errors while still recording the operation.
 
 The UI is **作战 → 会话与拓扑观察** (`/operations/sessions`). It includes paginated
 session filters, status/details, the latest 100 audit entries, annotations,
@@ -194,4 +197,18 @@ success/failure/timeout, output bounding, unsupported rejection without a networ
 call, idempotent `request_id`, and 401 on unauthenticated calls.
 `TestConnectionAdapterRealPHPFixture` runs the same adapter against the real PHP
 container and is enabled by `ARTEX_TEST_PHP_URL` + `ARTEX_TEST_PHP_KEY`.
+
+### Worker execution seam
+
+`server/intranet_executor.go` implements `agent.IntranetExecutor` over the
+adapter. It is wired in `agentsForTask` only when the connection service exists
+(`s.intranetExecutor()` returns nil otherwise, leaving the #10 behaviour of
+"tool present, executor unavailable"). Every call:
+
+- re-reads `session_inventory` and refuses a session whose `task_id` is not the
+  calling task, whose effective state is not `connected`, or that does not exist;
+- records an operation with `request_id=intranet-<taskID>-<unixnano>` so worker
+  executions are distinguishable from operator actions in the same history;
+- returns stdout on success and, on failure, an error carrying the exit code,
+  the tail of stdout, and the adapter's error/stderr (timeouts say `timed out`).
 
