@@ -107,6 +107,10 @@ export default function ProxiesPage() {
           </div>
           <p className="text-sm">系统默认出口：{pool?.system_default_proxy || "直连"}</p>
           <p className="text-muted-foreground text-sm">
+            透明网络沙箱（Linux，可选）开启后，任务 Bash 的连接、DNS 与忽略代理设置的流量都强制经过本任务租约；需要
+            NET_ADMIN / SYS_ADMIN 及 iproute2、nftables、util-linux。未开启时仅处理遵循代理设置的 HTTP 流量。
+          </p>
+          <p className="text-muted-foreground text-sm">
             模型和联网搜索沿用各自的代理配置。任务出口以租约为准；健康检查每分钟执行，也可手动检查。启停代理池后，正在运行的任务需暂停并继续以重建工具环境。只处理遵循代理设置的
             HTTP 流量。
           </p>

@@ -8,6 +8,12 @@ services:
     environment:
       ARTEX_KEY_DIR: /app/private
       ARTEX_CONFIG: /app/private/config.json
+    # Transparent task egress sandbox: the relay needs CLONE_NEWNET plus nftables.
+    # Without these caps sandboxed tasks pause instead of running direct;
+    # `privileged: true` is an alternative where cap_add is not honoured.
+    cap_add:
+      - NET_ADMIN
+      - SYS_ADMIN
     volumes:
       - ./content:/app/content:ro
       - artex-private:/app/private

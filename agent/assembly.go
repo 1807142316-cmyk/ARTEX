@@ -33,6 +33,12 @@ type DeferredInfo struct {
 // until a user assigns a skill/MCP to the agent in the UI.
 var ToolAugment func(ctx context.Context, agentKey string) (extra []actool.CoreTool, def DeferredInfo, cleanup func())
 
+// BashSandbox, if set, decorates the Bash tool for the run identified by ctx
+// (the server uses it to run task commands inside the task's egress sandbox).
+// Returning nil leaves the tool unchanged. It runs after the DB tool table has
+// resolved names, so an overridden Bash is decorated too.
+var BashSandbox func(ctx context.Context, bash actool.CoreTool) actool.CoreTool
+
 // AugmentTools returns base plus the agent's visible skill/MCP tools, the
 // DeferredInfo, and a cleanup func the caller must defer (closes MCP clients).
 // Built-in base tools are kept as-is — never filtered (内置工具留代码层，不做可见性过滤).
@@ -59,6 +65,16 @@ func AugmentTools(ctx context.Context, agentKey string, base []actool.CoreTool) 
 	// and pass through untouched, so deferred/unlock wiring stays consistent.
 	if ToolResolve != nil {
 		out = ToolResolve(ctx, agentKey, out)
+	}
+	if BashSandbox != nil {
+		for i, t := range out {
+			if t.Name() == "Bash" {
+				if wrapped := BashSandbox(ctx, t); wrapped != nil {
+					out[i] = wrapped
+				}
+				break
+			}
+		}
 	}
 	out, def.FindingGuidance = findingWorkflowTools(agentKey, out)
 	for i, t := range out {
