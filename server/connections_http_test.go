@@ -290,7 +290,14 @@ func TestConnectionAdaptersNeverExposeSecretsAndRejectUnknownFields(t *testing.T
 		t.Fatalf("create=%d %v", code, created)
 	}
 	id := int64(created["id"].(float64))
-	for _, raw := range []string{connectionJSON(created), connectionJSONCall(e.call(t, "GET", "/api/connections/adapters", nil, true)), connectionJSONCall(e.call(t, "GET", fmt.Sprintf("/api/connections/adapters/%d", id), nil, true))} {
+	// The list may hold adapters from earlier tests, so the secret_ref check is
+	// scoped to this adapter's own representations; the list is only checked for
+	// the secret itself, which must never appear for any row.
+	listRaw := connectionJSONCall(e.call(t, "GET", "/api/connections/adapters", nil, true))
+	if strings.Contains(listRaw, secret) || strings.Contains(listRaw, "sealed_secret") {
+		t.Fatalf("secret leaked through list: %s", listRaw)
+	}
+	for _, raw := range []string{connectionJSON(created), connectionJSONCall(e.call(t, "GET", fmt.Sprintf("/api/connections/adapters/%d", id), nil, true))} {
 		if strings.Contains(raw, secret) || strings.Contains(raw, "sealed_secret") {
 			t.Fatalf("secret leaked: %s", raw)
 		}

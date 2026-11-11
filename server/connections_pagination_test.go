@@ -137,8 +137,14 @@ func TestConnectionListEndpointsArePaginated(t *testing.T) {
 	if int(adapters["total"].(float64)) < len(adapterItems) {
 		t.Fatalf("adapter total=%v < items=%d", adapters["total"], len(adapterItems))
 	}
-	if adapters["truncated"] != false {
-		t.Fatalf("small adapter list marked truncated: %v", adapters["truncated"])
+	// The shared test database may hold more than the 200 adapter bound from
+	// earlier runs, so truncation is asserted against the actual total rather
+	// than assumed to be false.
+	if want := int(adapters["total"].(float64)) > 200; adapters["truncated"] != want {
+		t.Fatalf("adapter truncated=%v with total=%v", adapters["truncated"], adapters["total"])
+	}
+	if len(adapterItems) > 200 {
+		t.Fatalf("adapter list returned %d items without the 200 bound", len(adapterItems))
 	}
 	if limit, ok := adapters["limit"]; ok && limit != float64(200) {
 		t.Fatalf("adapter list limit=%v", limit)
