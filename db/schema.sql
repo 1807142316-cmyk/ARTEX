@@ -1661,3 +1661,12 @@ CREATE TABLE IF NOT EXISTS skill_run_evidence (
  received_at TIMESTAMPTZ NOT NULL DEFAULT now()
 );
 CREATE INDEX IF NOT EXISTS idx_skill_run_evidence_skill ON skill_run_evidence(skill,id DESC);
+
+-- #10 topology + intranet: credential_ref nodes may carry an explicit expiry.
+-- Effective state is computed at read time (expired when expires_at<=now()),
+-- so a stale writer cannot leave a credential looking valid.
+ALTER TABLE session_inventory_nodes ADD COLUMN IF NOT EXISTS expires_at TIMESTAMPTZ;
+-- Operator-declared applicability of a credential reference (e.g. "host",
+-- "domain", "task"). Descriptive only: the credential itself is never stored,
+-- and cross-task reuse is refused regardless of what this says.
+ALTER TABLE session_inventory_nodes ADD COLUMN IF NOT EXISTS scope TEXT NOT NULL DEFAULT '';
