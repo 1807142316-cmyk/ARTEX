@@ -30,10 +30,41 @@ const (
 	connectionKeyHeader   = "X-Shell-Key"
 	connectionKeyHeaderV1 = "X-Artex-Key"
 	connectionOutputCap   = 64 << 10
-	connectionMaxTimeout  = 30 * time.Second
 	connectionDefaultTTL  = 120
 	connectionMinSecret   = 32
+
+	// connectionExchangeDeadline bounds one request to an adapter. It matches the
+	// accepted/CHECKed timeout_seconds range (1-120) so the configured value is
+	// the value actually used; anywhere above it the exchange is clamped.
+	connectionExchangeDeadline = 120 * time.Second
+	// connectionOperationTimeoutCap bounds one *operation's* requested
+	// timeout_ms, independently of the adapter's own budget.
+	connectionOperationTimeoutCap = 30 * time.Second
 )
+
+// connectionExchangeTimeout is the single source of truth for how long one
+// exchange may run: the adapter's configured timeout (default 10s) clamped to
+// the documented ceiling, then bounded by a caller-supplied timeout_ms clamped
+// to the per-operation cap. 0 timeout_ms means "use the adapter budget".
+func connectionExchangeTimeout(a *db.ConnectionAdapter, timeoutMS int) time.Duration {
+	deadline := time.Duration(a.TimeoutSeconds) * time.Second
+	if deadline <= 0 {
+		deadline = 10 * time.Second
+	}
+	if deadline > connectionExchangeDeadline {
+		deadline = connectionExchangeDeadline
+	}
+	if timeoutMS > 0 {
+		requested := time.Duration(timeoutMS) * time.Millisecond
+		if requested > connectionOperationTimeoutCap {
+			requested = connectionOperationTimeoutCap
+		}
+		if requested < deadline {
+			deadline = requested
+		}
+	}
+	return deadline
+}
 
 type connectionService struct {
 	s     *Server
@@ -403,8 +434,8 @@ func (c *shellClient) exchange(ctx context.Context, request shellRequest) (shell
 	if c.timeout <= 0 {
 		c.timeout = 10 * time.Second
 	}
-	if c.timeout > connectionMaxTimeout {
-		c.timeout = connectionMaxTimeout
+	if c.timeout > connectionExchangeDeadline {
+		c.timeout = connectionExchangeDeadline
 	}
 	ctx, cancel := context.WithTimeout(ctx, c.timeout)
 	defer cancel()
@@ -935,16 +966,7 @@ func (s *Server) executeConnectionOperation(ctx context.Context, sessionID int64
 	if len(args) > 0 {
 		request.Args = args
 	}
-	deadline := client.timeout
-	if req.TimeoutMS > 0 {
-		requested := time.Duration(req.TimeoutMS) * time.Millisecond
-		if requested < deadline {
-			deadline = requested
-		}
-	}
-	if deadline > connectionMaxTimeout {
-		deadline = connectionMaxTimeout
-	}
+	deadline := connectionExchangeTimeout(adapter, req.TimeoutMS)
 	exchangeCtx, cancel := context.WithTimeout(ctx, deadline)
 	result, exchangeErr := client.exchange(exchangeCtx, request)
 	cancel()
@@ -1021,8 +1043,8 @@ func validateConnectionArgs(input connectionOperationInput) error {
 	if total > 4096 {
 		return errors.New("argv is limited to 4096 bytes in total")
 	}
-	if input.TimeoutMS < 0 || input.TimeoutMS > int(connectionMaxTimeout/time.Millisecond) {
-		return errors.New("timeout_ms must be between 0 and 30000")
+	if input.TimeoutMS < 0 || input.TimeoutMS > int(connectionOperationTimeoutCap/time.Millisecond) {
+		return fmt.Errorf("timeout_ms must be between 0 and %d", connectionOperationTimeoutCap/time.Millisecond)
 	}
 	return nil
 }
