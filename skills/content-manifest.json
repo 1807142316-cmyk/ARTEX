@@ -2,6 +2,74 @@
   "format_version": 1,
   "packages": [
     {
+      "name": "container-inspect-review",
+      "version": "artex-authored-1",
+      "license": "AGPL-3.0-only",
+      "authored_date": "2026-11-11",
+      "source_kind": "original-workflow-and-script",
+      "reference_urls": [
+        "https://docs.docker.com/reference/cli/docker/inspect/",
+        "https://docs.docker.com/engine/security/"
+      ],
+      "files": [
+        {
+          "path": "SKILL.md",
+          "bytes": 1943,
+          "sha256": "3265570b234bb8b951ccf83b1928b8ec7d5b60bfc3833e4bc243b1266f018888"
+        },
+        {
+          "path": "scripts/run.py",
+          "bytes": 5251,
+          "sha256": "3a67db6cc5728dcbcaae6a694568af4746d67c5842be475778f34e38184ded7e"
+        }
+      ]
+    },
+    {
+      "name": "cookie-attribute-review",
+      "version": "artex-authored-1",
+      "license": "AGPL-3.0-only",
+      "authored_date": "2026-11-11",
+      "source_kind": "original-workflow-and-script",
+      "reference_urls": [
+        "https://www.rfc-editor.org/rfc/rfc6265",
+        "https://developer.mozilla.org/en-US/docs/Web/HTTP/Headers/Set-Cookie"
+      ],
+      "files": [
+        {
+          "path": "SKILL.md",
+          "bytes": 1750,
+          "sha256": "edb34142121764f3abf6ee04b8e2427a9497f84b4e2ae1c83739684dab6d4bc2"
+        },
+        {
+          "path": "scripts/run.py",
+          "bytes": 4531,
+          "sha256": "5c7f1420a751bfcd07ff45a2ac4f4a8d2657e0615eec962a15fa9dfff2f62166"
+        }
+      ]
+    },
+    {
+      "name": "cors-policy-review",
+      "version": "artex-authored-1",
+      "license": "AGPL-3.0-only",
+      "authored_date": "2026-11-11",
+      "source_kind": "original-workflow-and-script",
+      "reference_urls": [
+        "https://fetch.spec.whatwg.org/#http-cors-protocol"
+      ],
+      "files": [
+        {
+          "path": "SKILL.md",
+          "bytes": 1785,
+          "sha256": "c6964f5eabc675633c693ca041fd35c02256bab6bab9dd238ebdff8d308006b3"
+        },
+        {
+          "path": "scripts/run.py",
+          "bytes": 4581,
+          "sha256": "e68a75947a4b34deb7db95d8a88205b8a88c4e11f2cccd1fab68dd14a5b48912"
+        }
+      ]
+    },
+    {
       "name": "cve-record-review",
       "version": "artex-authored-1",
       "license": "AGPL-3.0-only",
@@ -65,6 +133,29 @@
           "path": "scripts/run.py",
           "bytes": 4871,
           "sha256": "0ff10a0f657c0a5c492a94c4268d24650ae7063d235cc7774b356d373f4c6ad2"
+        }
+      ]
+    },
+    {
+      "name": "iam-policy-review",
+      "version": "artex-authored-1",
+      "license": "AGPL-3.0-only",
+      "authored_date": "2026-11-11",
+      "source_kind": "original-workflow-and-script",
+      "reference_urls": [
+        "https://docs.aws.amazon.com/IAM/latest/UserGuide/reference_policies_elements.html",
+        "https://docs.aws.amazon.com/IAM/latest/UserGuide/reference_policies_evaluation-logic.html"
+      ],
+      "files": [
+        {
+          "path": "SKILL.md",
+          "bytes": 2159,
+          "sha256": "7728d3f76861d18154f2bc788350b865e89b9936660312da623a9fd1bee289d9"
+        },
+        {
+          "path": "scripts/run.py",
+          "bytes": 5404,
+          "sha256": "caaa42e5f21e3802371c1282f81b6125b5a71020e880734954858f1932842fce"
         }
       ]
     },
@@ -135,6 +226,29 @@
       ]
     },
     {
+      "name": "sbom-inventory-review",
+      "version": "artex-authored-1",
+      "license": "AGPL-3.0-only",
+      "authored_date": "2026-11-11",
+      "source_kind": "original-workflow-and-script",
+      "reference_urls": [
+        "https://cyclonedx.org/docs/1.6/json/",
+        "https://spdx.github.io/spdx-spec/v2.3/package-information/"
+      ],
+      "files": [
+        {
+          "path": "SKILL.md",
+          "bytes": 1915,
+          "sha256": "58e4456248775b20ca35dff0107ce1773f2f40b8e21e33bfdfa4456b43c98ddf"
+        },
+        {
+          "path": "scripts/run.py",
+          "bytes": 6189,
+          "sha256": "251407a5ea4843906ee3035c5a851faf7081da2ef88f796c1ddfaa3106189281"
+        }
+      ]
+    },
+    {
       "name": "scope-asset-inventory",
       "version": "artex-authored-1",
       "license": "AGPL-3.0-only",
@@ -154,6 +268,52 @@
           "path": "scripts/run.py",
           "bytes": 4518,
           "sha256": "a39114c526539965c97c88b79861b01e0597c48f4cf491710649fecb2cdf9dab"
+        }
+      ]
+    },
+    {
+      "name": "sshd-effective-config-review",
+      "version": "artex-authored-1",
+      "license": "AGPL-3.0-only",
+      "authored_date": "2026-11-11",
+      "source_kind": "original-workflow-and-script",
+      "reference_urls": [
+        "https://man.openbsd.org/sshd.8",
+        "https://man.openbsd.org/sshd_config.5"
+      ],
+      "files": [
+        {
+          "path": "SKILL.md",
+          "bytes": 1904,
+          "sha256": "c819b22e0e8760e3b5455411cabfe0d4a2864e445c580df03b8553e8a44b0d19"
+        },
+        {
+          "path": "scripts/run.py",
+          "bytes": 4306,
+          "sha256": "ec9aab34b4d908e5eee7ea33315cf1854dc26062a52bae37d103bc4b3977fee2"
+        }
+      ]
+    },
+    {
+      "name": "tls-observation-review",
+      "version": "artex-authored-1",
+      "license": "AGPL-3.0-only",
+      "authored_date": "2026-11-11",
+      "source_kind": "original-workflow-and-script",
+      "reference_urls": [
+        "https://cheatsheetseries.owasp.org/cheatsheets/Transport_Layer_Security_Cheat_Sheet.html",
+        "https://docs.python.org/3/library/ssl.html"
+      ],
+      "files": [
+        {
+          "path": "SKILL.md",
+          "bytes": 1720,
+          "sha256": "35d6a57c6a650f13323b184e7d463297e29fcfc1f15a0ecb578da878be589f42"
+        },
+        {
+          "path": "scripts/run.py",
+          "bytes": 3914,
+          "sha256": "873bac568130a1fc2f64afe25b8fcb0719d30706f7e870535616019cd5fc63a6"
         }
       ]
     }

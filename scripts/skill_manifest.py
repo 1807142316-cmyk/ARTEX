@@ -13,6 +13,13 @@ PACKAGES = {
     "har-api-inventory": ["https://www.softwareishard.com/blog/har-12-spec/"],
     "knowledge-package-check": ["https://docs.python.org/3/library/hashlib.html"],
     "report-evidence-index": ["https://docs.python.org/3/library/hashlib.html"],
+    "tls-observation-review": ["https://cheatsheetseries.owasp.org/cheatsheets/Transport_Layer_Security_Cheat_Sheet.html", "https://docs.python.org/3/library/ssl.html"],
+    "cors-policy-review": ["https://fetch.spec.whatwg.org/#http-cors-protocol"],
+    "cookie-attribute-review": ["https://www.rfc-editor.org/rfc/rfc6265", "https://developer.mozilla.org/en-US/docs/Web/HTTP/Headers/Set-Cookie"],
+    "sshd-effective-config-review": ["https://man.openbsd.org/sshd.8", "https://man.openbsd.org/sshd_config.5"],
+    "container-inspect-review": ["https://docs.docker.com/reference/cli/docker/inspect/", "https://docs.docker.com/engine/security/"],
+    "iam-policy-review": ["https://docs.aws.amazon.com/IAM/latest/UserGuide/reference_policies_elements.html", "https://docs.aws.amazon.com/IAM/latest/UserGuide/reference_policies_evaluation-logic.html"],
+    "sbom-inventory-review": ["https://cyclonedx.org/docs/1.6/json/", "https://spdx.github.io/spdx-spec/v2.3/package-information/"],
 }
 
 
