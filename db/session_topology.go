@@ -185,21 +185,34 @@ func (d *DB) InventoryEdgeAudit(ctx context.Context, id int64) ([]map[string]any
 	return items, rows.Err()
 }
 
+type InventoryTopologyNode struct {
+	Ref            string  `json:"ref"`
+	ID             int64   `json:"id"`
+	Kind           string  `json:"kind"`
+	ExternalRef    *string `json:"external_ref,omitempty"`
+	Label          string  `json:"label"`
+	Address        *string `json:"address,omitempty"`
+	State          string  `json:"state"`
+	EffectiveState string  `json:"effective_state"`
+	TaskID         *int64  `json:"task_id"`
+	AssetID        *int64  `json:"asset_id"`
+}
+
 type InventoryTopology struct {
-	Nodes     []map[string]any `json:"nodes"`
-	Edges     []InventoryEdge  `json:"edges"`
-	Truncated bool             `json:"truncated"`
-	Mode      string           `json:"mode"`
+	Nodes     []InventoryTopologyNode `json:"nodes"`
+	Edges     []InventoryEdge         `json:"edges"`
+	Truncated bool                    `json:"truncated"`
+	Mode      string                  `json:"mode"`
 }
 
 func (d *DB) InventoryTopology(ctx context.Context, q string, task *int64) (InventoryTopology, error) {
-	graph := InventoryTopology{Nodes: []map[string]any{}, Edges: []InventoryEdge{}, Mode: "observer"}
+	graph := InventoryTopology{Nodes: []InventoryTopologyNode{}, Edges: []InventoryEdge{}, Mode: "observer"}
 	tx, err := d.BeginTx(ctx, &sql.TxOptions{Isolation: sql.LevelRepeatableRead, ReadOnly: true})
 	if err != nil {
 		return graph, err
 	}
 	defer tx.Rollback()
-	rows, err := tx.QueryContext(ctx, `SELECT jsonb_build_object('ref','node:'||id,'id',id,'kind',kind,'external_ref',external_ref,'label',label,'address',address,'state',state,'effective_state',state,'task_id',task_id,'asset_id',asset_id)
+	rows, err := tx.QueryContext(ctx, `SELECT id,kind,external_ref,label,address,state,task_id,asset_id
  FROM session_inventory_nodes WHERE ($1='' OR external_ref ILIKE $2 OR label ILIKE $2) AND ($3::bigint IS NULL OR task_id=$3) ORDER BY id LIMIT 501`, q, "%"+q+"%", task)
 	if err != nil {
 		return graph, err
@@ -207,22 +220,16 @@ func (d *DB) InventoryTopology(ctx context.Context, q string, task *int64) (Inve
 	active := map[string]bool{}
 	owners := map[string]*int64{}
 	for rows.Next() {
-		var raw []byte
-		var n map[string]any
-		if err = rows.Scan(&raw); err != nil {
+		var n InventoryTopologyNode
+		if err = rows.Scan(&n.ID, &n.Kind, &n.ExternalRef, &n.Label, &n.Address, &n.State, &n.TaskID, &n.AssetID); err != nil {
 			rows.Close()
 			return graph, err
 		}
-		if err = json.Unmarshal(raw, &n); err != nil {
-			rows.Close()
-			return graph, err
-		}
+		n.Ref = "node:" + strconv.FormatInt(n.ID, 10)
+		n.EffectiveState = n.State
 		graph.Nodes = append(graph.Nodes, n)
-		active[n["ref"].(string)] = n["state"] == "active"
-		if raw, ok := n["task_id"].(float64); ok {
-			id := int64(raw)
-			owners[n["ref"].(string)] = &id
-		}
+		active[n.Ref] = n.State == "active"
+		owners[n.Ref] = n.TaskID
 	}
 	if err = rows.Err(); err != nil {
 		rows.Close()
@@ -240,7 +247,7 @@ func (d *DB) InventoryTopology(ctx context.Context, q string, task *int64) (Inve
 			return graph, err
 		}
 		ref := "session:" + strconv.FormatInt(s.ID, 10)
-		n := map[string]any{"ref": ref, "id": s.ID, "kind": "session", "label": s.Source + " / " + s.SourceID, "state": s.State, "effective_state": s.EffectiveState, "task_id": s.TaskID, "asset_id": s.AssetID}
+		n := InventoryTopologyNode{Ref: ref, ID: s.ID, Kind: "session", Label: s.Source + " / " + s.SourceID, State: s.State, EffectiveState: s.EffectiveState, TaskID: s.TaskID, AssetID: s.AssetID}
 		graph.Nodes = append(graph.Nodes, n)
 		active[ref] = s.EffectiveState == "connected"
 		owners[ref] = s.TaskID
@@ -255,8 +262,7 @@ func (d *DB) InventoryTopology(ctx context.Context, q string, task *int64) (Inve
 		graph.Nodes = graph.Nodes[:500]
 		active = map[string]bool{}
 		for _, n := range graph.Nodes {
-			state := n["effective_state"]
-			active[n["ref"].(string)] = state == "active" || state == "connected"
+			active[n.Ref] = n.EffectiveState == "active" || n.EffectiveState == "connected"
 		}
 	}
 	refs := make([]string, 0, len(active))

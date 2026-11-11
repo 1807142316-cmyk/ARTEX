@@ -66,10 +66,10 @@ for invalid input. The result files remain task evidence.
 These packages cover fourteen workflows. They do not claim to reproduce every
 directory or capability visible in the target screenshots. Existing `api-recon`,
 `playwright-cli`, and `scopesentry` content remains unchanged. On 2026-11-11,
-nine CLI tests and the first seven authored package manifests passed on Ubuntu 22.04
-with Python 3.10.12. See `docs/screenshot-parity-linux-validation.md`. This does
-not certify the complete platform container, Agent browser or remaining content.
-The seven configuration-audit packages added afterward require a new Linux run;
-that result is not inferred from the earlier evidence. The complete CLI suite and
-actual Agent resource loading test provide repeatable validation commands above
-and in `server/skill_catalog_http_test.go`.
+all seventeen CLI tests and fourteen authored package manifests passed on Ubuntu
+22.04 with Python 3.10.12. The actual Agent loading/resource resolution and call
+count test also passed on Linux against an independent Compose PostgreSQL
+database. See `docs/screenshot-parity-linux-validation.md`. These checks do not
+certify the complete platform image, Agent browser or unknown screenshot
+categories. Repeatable commands are above and in
+`server/skill_catalog_http_test.go`.

@@ -1,6 +1,6 @@
 ﻿"use client";
 
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 
 import { toast } from "sonner";
 
@@ -76,44 +76,69 @@ export default function SessionInventoryPage() {
   const [edgeAudit, setEdgeAudit] = useState<{ id: number; state: string; note: string; created_at: string }[] | null>(
     null,
   );
+  const listRequest = useRef(0);
+  const detailRequest = useRef(0);
+  const selectedDetail = useRef<number | null>(null);
+  const refreshDetail = useCallback(async (id: number, clearNote = false) => {
+    const request = ++detailRequest.current;
+    try {
+      const latest = await inventoryAPI.detail(id);
+      if (request !== detailRequest.current || selectedDetail.current !== id) return;
+      setDetail(latest);
+      if (clearNote) setNote("");
+    } catch (err) {
+      if (request === detailRequest.current && selectedDetail.current === id) toast.error(errorText(err));
+    }
+  }, []);
   const load = useCallback(async () => {
+    const request = ++listRequest.current;
     setLoading(true);
     setError("");
     const params = new URLSearchParams({ page: String(page), limit: "20", source, kind, state, q: query });
     if (task) params.set("task_id", task);
     const topologyParams = new URLSearchParams();
     if (task) topologyParams.set("task_id", task);
+    const id = selectedDetail.current;
+    if (id !== null) void refreshDetail(id);
     try {
       const [list, topology] = await Promise.all([inventoryAPI.sessions(params), inventoryAPI.graph(topologyParams)]);
+      if (request !== listRequest.current) return;
       setItems(list.items);
       setTotal(list.total);
       setGraph(topology);
     } catch (err) {
-      setError(errorText(err));
+      if (request === listRequest.current) setError(errorText(err));
     } finally {
-      setLoading(false);
+      if (request === listRequest.current) setLoading(false);
     }
-  }, [page, source, kind, state, query, task]);
+  }, [page, source, kind, state, query, task, refreshDetail]);
+  const latestLoad = useRef(load);
   useEffect(() => {
+    latestLoad.current = load;
     void load();
     const interval = setInterval(() => void load(), 15000);
-    return () => clearInterval(interval);
+    return () => {
+      clearInterval(interval);
+      listRequest.current++;
+      detailRequest.current++;
+    };
   }, [load]);
   const open = async (id: number) => {
-    try {
-      setDetail(await inventoryAPI.detail(id));
-      setNote("");
-    } catch (err) {
-      toast.error(errorText(err));
-    }
+    if (selectedDetail.current !== id) setDetail(null);
+    selectedDetail.current = id;
+    await refreshDetail(id, true);
+  };
+  const closeDetail = () => {
+    selectedDetail.current = null;
+    detailRequest.current++;
+    setDetail(null);
   };
   const run = async (action: () => Promise<unknown>, message: string) => {
     setBusy(true);
     try {
       await action();
       toast.success(message);
-      await load();
-      if (detail) setDetail(await inventoryAPI.detail(detail.session.id));
+      await latestLoad.current();
     } catch (err) {
       toast.error(errorText(err));
     } finally {
@@ -310,7 +335,7 @@ export default function SessionInventoryPage() {
                 <h2 className="font-semibold">
                   观察 #{detail.session.id} · {detail.session.source_id}
                 </h2>
-                <Button variant="ghost" onClick={() => setDetail(null)}>
+                <Button variant="ghost" onClick={closeDetail}>
                   关闭详情
                 </Button>
               </div>

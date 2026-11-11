@@ -42,8 +42,12 @@ clear inherited `NO_PROXY` and `no_proxy` bypasses. Programs can still explicitl
 override their own proxy configuration. No network isolation claim is made.
 
 Standalone scanning must either supply an associated task gateway or be rejected
-when the pool is enabled. Linux runtime and real-browser execution still need
-end-to-end deployment acceptance. Current actual-PostgreSQL HTTP tests cover
+when the pool is enabled. The actual Agent-assembled Playwright MCP/Chromium
+test passed on Windows with two tasks assigned two different proxies, including
+an inherited `NO_PROXY=*`; both navigations returned their assigned exit marker
+and left persisted browser arguments unchanged. Six HTTP/PostgreSQL proxy tests
+also passed on Linux, covering the gateway behavior below. Linux Chromium and
+complete application deployment still need acceptance. These checks cover
 parallel exit separation, stable retries, proxy failure/default pause, explicit
 failover/direct fallback with recorded transitions, recording on/off parity,
 SOCKS5 forwarding, authentication and credential redaction.
