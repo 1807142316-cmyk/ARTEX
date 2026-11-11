@@ -753,6 +753,9 @@ func (s *Server) Handler() http.Handler {
 	mux.HandleFunc("POST /api/llm", s.setLLM)
 	mux.HandleFunc("POST /api/llm/test", s.testLLM)
 
+	s.registerSessionInventory(mux)
+	s.registerSessionTopology(mux)
+
 	// asset system
 	mux.HandleFunc("GET /api/assets", s.listAssets)
 	mux.HandleFunc("GET /api/assets/counts", s.assetCounts)

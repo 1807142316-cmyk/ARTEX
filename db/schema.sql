@@ -1608,3 +1608,47 @@ CREATE TABLE IF NOT EXISTS task_egress_events (
  created_at TIMESTAMPTZ NOT NULL DEFAULT now()
 );
 CREATE INDEX IF NOT EXISTS idx_task_egress_events_task ON task_egress_events(task_id,id DESC);
+
+-- External session observations are an inventory; no command/control channel.
+CREATE TABLE IF NOT EXISTS session_inventory (
+ id BIGSERIAL PRIMARY KEY,
+ source TEXT NOT NULL, source_id TEXT NOT NULL,
+ sequence BIGINT NOT NULL CHECK (sequence>0), content_hash TEXT NOT NULL,
+ kind TEXT NOT NULL CHECK (kind IN ('c2','webshell')),
+ protocol_label TEXT NOT NULL DEFAULT '', state TEXT NOT NULL CHECK(state IN ('connected','disconnected','unknown')),
+ host TEXT NOT NULL DEFAULT '', url TEXT NOT NULL DEFAULT '',
+ task_id BIGINT REFERENCES tasks(id) ON DELETE SET NULL,
+ asset_id BIGINT REFERENCES assets(id) ON DELETE SET NULL,
+ heartbeat_at TIMESTAMPTZ NOT NULL, heartbeat_ttl_seconds INTEGER NOT NULL CHECK(heartbeat_ttl_seconds BETWEEN 1 AND 86400),
+ disconnect_reason TEXT NOT NULL DEFAULT '', annotation TEXT NOT NULL DEFAULT '',
+ updated_at TIMESTAMPTZ NOT NULL DEFAULT now(), UNIQUE(source,source_id)
+);
+CREATE INDEX IF NOT EXISTS idx_session_inventory_task ON session_inventory(task_id);
+CREATE INDEX IF NOT EXISTS idx_session_inventory_updated ON session_inventory(updated_at DESC,id DESC);
+CREATE TABLE IF NOT EXISTS session_inventory_audit (
+ id BIGSERIAL PRIMARY KEY, session_id BIGINT NOT NULL REFERENCES session_inventory(id) ON DELETE CASCADE,
+ action TEXT NOT NULL, sequence BIGINT NOT NULL, state TEXT NOT NULL,
+ detail TEXT NOT NULL DEFAULT '', created_at TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+CREATE INDEX IF NOT EXISTS idx_session_inventory_audit ON session_inventory_audit(session_id,id DESC);
+CREATE TABLE IF NOT EXISTS session_inventory_nodes (
+ id BIGSERIAL PRIMARY KEY,kind TEXT NOT NULL CHECK(kind IN ('host','subnet','tunnel','credential_ref')),
+ external_ref TEXT NOT NULL UNIQUE,label TEXT NOT NULL,address TEXT NOT NULL DEFAULT '',
+ state TEXT NOT NULL CHECK(state IN ('active','invalid','expired')),
+ task_id BIGINT REFERENCES tasks(id) ON DELETE SET NULL,asset_id BIGINT REFERENCES assets(id) ON DELETE SET NULL,
+ updated_at TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+CREATE TABLE IF NOT EXISTS session_inventory_edges (
+ id BIGSERIAL PRIMARY KEY,source_ref TEXT NOT NULL,target_ref TEXT NOT NULL,
+ relation TEXT NOT NULL CHECK(relation IN ('hosted_on','member_of','tunnel_metadata','credential_reference')),
+ state TEXT NOT NULL CHECK(state IN ('active','inactive')),note TEXT NOT NULL DEFAULT '',updated_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+ UNIQUE(source_ref,target_ref,relation),CHECK(source_ref<>target_ref)
+);
+CREATE TABLE IF NOT EXISTS session_inventory_node_audit (
+ id BIGSERIAL PRIMARY KEY,node_id BIGINT NOT NULL REFERENCES session_inventory_nodes(id) ON DELETE CASCADE,
+ state TEXT NOT NULL,label TEXT NOT NULL,created_at TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+CREATE TABLE IF NOT EXISTS session_inventory_edge_audit (
+ id BIGSERIAL PRIMARY KEY,edge_id BIGINT NOT NULL REFERENCES session_inventory_edges(id) ON DELETE CASCADE,
+ state TEXT NOT NULL,note TEXT NOT NULL,created_at TIMESTAMPTZ NOT NULL DEFAULT now()
+);
