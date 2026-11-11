@@ -20,7 +20,7 @@ func TestPrivateKeyStartupRejectsCorruptionAndBrowsableLocation(t *testing.T) {
 		New(context.Background(), nil, "", os.Getenv("ARTEX_TEST_DATA_DIR"), os.Getenv("ARTEX_TEST_KEY_DIR"), os.Getenv("ARTEX_TEST_LEGACY_DIR"))
 		return
 	}
-	for _, scenario := range []string{"corrupt-private-key", "corrupt-legacy-key", "inside-workspace"} {
+	for _, scenario := range []string{"corrupt-private-key", "corrupt-legacy-key", "inside-workspace", "conflicting-legacy-key", "corrupt-legacy-with-private-key"} {
 		t.Run(scenario, func(t *testing.T) {
 			root := t.TempDir()
 			dataDir, keyDir, legacyDir := filepath.Join(root, "data"), filepath.Join(root, "private"), filepath.Join(root, "legacy")
@@ -30,7 +30,7 @@ func TestPrivateKeyStartupRejectsCorruptionAndBrowsableLocation(t *testing.T) {
 			var corruptPath string
 			if scenario != "inside-workspace" {
 				dir := keyDir
-				if scenario == "corrupt-legacy-key" {
+				if scenario == "corrupt-legacy-key" || scenario == "conflicting-legacy-key" || scenario == "corrupt-legacy-with-private-key" {
 					dir = legacyDir
 				}
 				if err := os.MkdirAll(dir, 0700); err != nil {
@@ -39,6 +39,19 @@ func TestPrivateKeyStartupRejectsCorruptionAndBrowsableLocation(t *testing.T) {
 				corruptPath = filepath.Join(dir, jwtKeyFilename)
 				if err := os.WriteFile(corruptPath, []byte("broken"), 0600); err != nil {
 					t.Fatal(err)
+				}
+				if scenario == "conflicting-legacy-key" || scenario == "corrupt-legacy-with-private-key" {
+					if err := os.MkdirAll(keyDir, 0700); err != nil {
+						t.Fatal(err)
+					}
+					if err := os.WriteFile(filepath.Join(keyDir, jwtKeyFilename), []byte("retained-private-key-12345678901234567890"), 0600); err != nil {
+						t.Fatal(err)
+					}
+					if scenario == "conflicting-legacy-key" {
+						if err := os.WriteFile(corruptPath, []byte("conflicting-legacy-key-12345678901234567890"), 0600); err != nil {
+							t.Fatal(err)
+						}
+					}
 				}
 			}
 			cmd := exec.Command(os.Args[0], "-test.run=^TestPrivateKeyStartupRejectsCorruptionAndBrowsableLocation$")
@@ -56,8 +69,18 @@ func TestPrivateKeyStartupRejectsCorruptionAndBrowsableLocation(t *testing.T) {
 			}
 			if corruptPath != "" {
 				unchanged, err := os.ReadFile(corruptPath)
-				if err != nil || string(unchanged) != "broken" {
+				want := "broken"
+				if scenario == "conflicting-legacy-key" {
+					want = "conflicting-legacy-key-12345678901234567890"
+				}
+				if err != nil || string(unchanged) != want {
 					t.Fatalf("invalid key overwritten: %v", err)
+				}
+				if scenario == "conflicting-legacy-key" || scenario == "corrupt-legacy-with-private-key" {
+					private, err := os.ReadFile(filepath.Join(keyDir, jwtKeyFilename))
+					if err != nil || string(private) != "retained-private-key-12345678901234567890" {
+						t.Fatalf("retained private key overwritten: %v", err)
+					}
 				}
 			}
 		})
@@ -67,7 +90,7 @@ func TestPrivateKeyStartupRejectsCorruptionAndBrowsableLocation(t *testing.T) {
 func TestPersistentKeyKeepsLoginAndProxyCredentialsAfterRecreation(t *testing.T) {
 	m := newProxyPoolTestManager(t)
 	defer m.Close()
-	dataDir := t.TempDir()
+	dataDir := m.dir
 	keyDir := filepath.Join(t.TempDir(), "private-runtime")
 	legacyDir := t.TempDir()
 	legacyKey := []byte("persistent-key-for-http-acceptance-123456789")
@@ -117,12 +140,16 @@ func TestPersistentKeyKeepsLoginAndProxyCredentialsAfterRecreation(t *testing.T)
 	if _, err := os.Stat(filepath.Join(legacyDir, jwtKeyFilename)); !os.IsNotExist(err) {
 		t.Fatalf("legacy signing key was not removed: %v", err)
 	}
-	if err := os.Remove(legacyDir); err != nil {
-		t.Fatal(err)
+	// A crash after writing the destination can leave matching old copies.
+	// The next startup must finish removing all browsable/executable copies.
+	for _, dir := range []string{legacyDir, dataDir} {
+		if err := os.WriteFile(filepath.Join(dir, jwtKeyFilename), legacyKey, 0600); err != nil {
+			t.Fatal(err)
+		}
 	}
 	ctx2, cancel2 := context.WithCancel(context.Background())
 	defer cancel2()
-	recreated := New(ctx2, m, t.TempDir(), dataDir, keyDir)
+	recreated := New(ctx2, m, t.TempDir(), dataDir, keyDir, legacyDir)
 	w = request(recreated, "POST", fmt.Sprintf("/api/proxies/%d/check", endpoint.ID), nil)
 	if !strings.Contains(w.Body.String(), `"healthy"`) || !strings.Contains(w.Body.String(), "192.0.2.91") {
 		t.Fatalf("recreated proxy health: %s", w.Body)
@@ -130,5 +157,8 @@ func TestPersistentKeyKeepsLoginAndProxyCredentialsAfterRecreation(t *testing.T)
 	w = request(recreated, "GET", "/api/workspace/list", nil)
 	if strings.Contains(w.Body.String(), jwtKeyFilename) {
 		t.Fatal("signing key exposed in browsable workspace")
+	}
+	if _, err := os.Stat(filepath.Join(legacyDir, jwtKeyFilename)); !os.IsNotExist(err) {
+		t.Fatalf("matching executable-side key was not removed on resumed migration: %v", err)
 	}
 }

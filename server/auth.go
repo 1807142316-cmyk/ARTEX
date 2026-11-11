@@ -1,6 +1,7 @@
 package server
 
 import (
+	"bytes"
 	"crypto/rand"
 	"errors"
 	"fmt"
@@ -66,29 +67,47 @@ func loadOrCreateJWTKey(keyDir, dataDir string, legacyDirs ...string) ([]byte, e
 		return nil, fmt.Errorf("create key directory: %w", err)
 	}
 	path := filepath.Join(keyDir, jwtKeyFilename)
-	if key, err := readJWTKey(path); !errors.Is(err, os.ErrNotExist) {
-		return key, err
+	key, err := readJWTKey(path)
+	if err != nil && !errors.Is(err, os.ErrNotExist) {
+		return nil, err
 	}
+	var legacyPaths []string
 	for _, legacyDir := range append(legacyDirs, dataDir) {
 		legacy := filepath.Join(legacyDir, jwtKeyFilename)
 		absLegacy, err := filepath.Abs(legacy)
 		if err != nil || absLegacy == filepath.Join(absKey, jwtKeyFilename) {
 			continue
 		}
-		key, err := readJWTKey(legacy)
+		legacyKey, err := readJWTKey(legacy)
 		if errors.Is(err, os.ErrNotExist) {
 			continue
 		}
 		if err != nil {
 			return nil, fmt.Errorf("read legacy JWT key: %w", err)
 		}
-		if err := persistJWTKey(path, key); err != nil {
+		if key == nil {
+			key = legacyKey
+		} else if !bytes.Equal(key, legacyKey) {
+			return nil, fmt.Errorf("JWT keys conflict at %s and %s; reconcile keys from backup before startup", path, legacy)
+		}
+		legacyPaths = append(legacyPaths, legacy)
+	}
+	if key != nil {
+		if _, err := os.Stat(path); errors.Is(err, os.ErrNotExist) {
+			if err := persistJWTKey(path, key); err != nil {
+				return nil, err
+			}
+		} else if err != nil {
 			return nil, err
 		}
-		if err := os.Remove(legacy); err != nil {
-			return nil, fmt.Errorf("remove migrated JWT key: %w", err)
+		for _, legacy := range legacyPaths {
+			if err := os.Remove(legacy); err != nil && !errors.Is(err, os.ErrNotExist) {
+				return nil, fmt.Errorf("remove migrated JWT key: %w", err)
+			}
 		}
-		log.Printf("[auth] JWT key 已迁移到 %s", path)
+		if len(legacyPaths) > 0 {
+			log.Printf("[auth] JWT key 已迁移到 %s", path)
+		}
 		return key, nil
 	}
 	buf := make([]byte, 32)
