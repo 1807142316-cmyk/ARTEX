@@ -165,16 +165,18 @@ func (s *Server) reportSkillRun(w http.ResponseWriter, r *http.Request) {
 		writeErr(w, 400, "invalid outcome")
 		return
 	}
-	if err := s.validateReportedPackage(in); err != nil {
-		writeErr(w, 400, err.Error())
-		return
-	}
 	raw, _ := json.Marshal(in)
 	sum := sha256.Sum256(raw)
 	in.Attestation = "operator_reported"
-	out, created, err := s.m.pg.SaveSkillRun(r.Context(), in, hex.EncodeToString(sum[:]))
+	var packageError error
+	out, created, err := s.m.pg.SaveSkillRun(r.Context(), in, hex.EncodeToString(sum[:]), func() error {
+		packageError = s.validateReportedPackage(in)
+		return packageError
+	})
 	if err != nil {
-		if errors.Is(err, db.ErrSkillRunConflict) {
+		if packageError != nil {
+			writeErr(w, 400, packageError.Error())
+		} else if errors.Is(err, db.ErrSkillRunConflict) {
 			writeErr(w, 409, err.Error())
 		} else if errors.Is(err, db.ErrSkillRunReference) {
 			writeErr(w, 400, err.Error())

@@ -55,6 +55,10 @@ func TestSkillRunEvidenceIsAuthenticatedImmutableAndSeparateFromLoads(t *testing
 	}
 	now := time.Now().UTC().Truncate(time.Second)
 	payload := map[string]any{"client_run_id": "http-evidence-" + strconv.FormatInt(time.Now().UnixNano(), 10), "skill": "saved-header-review", "package_version": "artex-authored-1", "script_sha256": hash("scripts/run.py"), "instructions_sha256": hash("SKILL.md"), "input_label": "headers.json", "input_sha256": "2cf24dba5fb0a30e26e83b2ac5b9e29e1b161e5c1fa7425e73043362938b9824", "input_kind": "file", "input_bytes": 5, "started_at": now.Add(-time.Second), "finished_at": now, "exit_code": 0, "outcome": "succeeded", "stdout": "private workflow result", "stderr": "", "truncated": false}
+	originalPayload := make(map[string]any, len(payload))
+	for key, value := range payload {
+		originalPayload[key] = value
+	}
 	beforeLoads := request("GET", "/api/skills/saved-header-review/usage", nil, true)
 	for _, change := range []map[string]any{
 		{"input_label": "line\nbreak.json"},
@@ -150,6 +154,59 @@ func TestSkillRunEvidenceIsAuthenticatedImmutableAndSeparateFromLoads(t *testing
 	}
 	if w := request("PATCH", "/api/skill-runs/"+strconv.FormatInt(created.ID, 10), map[string]string{"stdout": "changed"}, true); w.Code != 405 {
 		t.Fatalf("mutable report route=%d", w.Code)
+	}
+	// Existing immutable reports remain replayable after content upgrades/removal.
+	localRoot := t.TempDir()
+	for _, relative := range []string{"content-manifest.json", "saved-header-review/SKILL.md", "saved-header-review/scripts/run.py"} {
+		raw, err := os.ReadFile(filepath.Join(root, relative))
+		if err != nil {
+			t.Fatal(err)
+		}
+		target := filepath.Join(localRoot, relative)
+		if err := os.MkdirAll(filepath.Dir(target), 0700); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(target, raw, 0600); err != nil {
+			t.Fatal(err)
+		}
+	}
+	s.skillDir = localRoot
+	if err := os.WriteFile(filepath.Join(localRoot, "saved-header-review/scripts/run.py"), []byte("changed package content"), 0600); err != nil {
+		t.Fatal(err)
+	}
+	for _, removeManifest := range []bool{false, true} {
+		if removeManifest {
+			if err := os.Remove(filepath.Join(localRoot, "content-manifest.json")); err != nil {
+				t.Fatal(err)
+			}
+		}
+		w := request("POST", "/api/skill-runs", originalPayload, true)
+		if w.Code != 200 {
+			t.Fatalf("historical replay after content change=%d %s", w.Code, w.Body)
+		}
+		var replay struct {
+			ID     int64  `json:"id"`
+			Stdout string `json:"stdout"`
+		}
+		if err := json.Unmarshal(w.Body.Bytes(), &replay); err != nil {
+			t.Fatal(err)
+		}
+		if replay.ID != created.ID || replay.Stdout != "private workflow result" {
+			t.Fatalf("changed historical replay=%s", w.Body)
+		}
+		originalPayload["stdout"] = "conflicting history"
+		if w := request("POST", "/api/skill-runs", originalPayload, true); w.Code != 409 {
+			t.Fatalf("historical conflict after content change=%d %s", w.Code, w.Body)
+		}
+		originalPayload["stdout"] = "private workflow result"
+		newPayload := make(map[string]any, len(originalPayload))
+		for key, value := range originalPayload {
+			newPayload[key] = value
+		}
+		newPayload["client_run_id"] = "new-content-" + strconv.FormatInt(time.Now().UnixNano(), 10)
+		if w := request("POST", "/api/skill-runs", newPayload, true); w.Code != 400 {
+			t.Fatalf("new report bypassed content validation=%d %s", w.Code, w.Body)
+		}
 	}
 }
 

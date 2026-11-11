@@ -56,7 +56,9 @@ func decodeSkillRunEvidence(raw []byte) (SkillRunEvidence, error) {
 	return stored.SkillRunEvidence, nil
 }
 
-func (d *DB) SaveSkillRun(ctx context.Context, evidence SkillRunEvidence, hash string) (SkillRunEvidence, bool, error) {
+// validateNew runs only after the immutable replay lookup, while holding the
+// client ID transaction lock. Retries do not depend on current package files.
+func (d *DB) SaveSkillRun(ctx context.Context, evidence SkillRunEvidence, hash string, validateNew func() error) (SkillRunEvidence, bool, error) {
 	tx, err := d.BeginTx(ctx, nil)
 	if err != nil {
 		return evidence, false, err
@@ -83,6 +85,9 @@ func (d *DB) SaveSkillRun(ctx context.Context, evidence SkillRunEvidence, hash s
 		return evidence, false, tx.Commit()
 	}
 	if !errors.Is(err, sql.ErrNoRows) {
+		return evidence, false, err
+	}
+	if err := validateNew(); err != nil {
 		return evidence, false, err
 	}
 	if evidence.TaskID != nil {
