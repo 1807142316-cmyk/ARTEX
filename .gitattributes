@@ -15,6 +15,7 @@ skills/container-inspect-review/** text eol=lf
 skills/iam-policy-review/** text eol=lf
 skills/sbom-inventory-review/** text eol=lf
 skills/python-source-review/** text eol=lf
+skills/binary-format-inspection/** text eol=lf
 skills/content-manifest.json text eol=lf
 scripts/skill_manifest.py text eol=lf
 tests/skills/*.py text eol=lf
