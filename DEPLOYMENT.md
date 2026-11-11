@@ -46,6 +46,26 @@ deduplicated by CVE ID and hash. The CLI re-reads an interrupted archive rather
 than maintaining a byte-offset cursor. Importing a baseline does not disable
 the application's automatic update service.
 
+Run the opt-in full-corpus HTTP acceptance check against a dedicated database
+after the official import finishes, and again against its restored copy:
+
+```sh
+export ARTEX_PG_DSN='postgres://artex@127.0.0.1:5432/artex_cve_acceptance?sslmode=disable'
+ARTEX_CVE_ACCEPTANCE_COUNT=421793 go test ./server \
+  -run '^TestCVEFullCorpusAuthenticatedHTTPAcceptance$' -count=1 -v
+```
+
+Use the actual database DSN and the expected count of the verified source
+snapshot. This check is skipped unless the count is positive. It uses the real
+authenticated HTTP handler and PostgreSQL corpus, checks state/year aggregates,
+the original Log4Shell record and source version, and product/component/description
+queries. It does not import records, clear tables, or change synchronization
+settings. Its canceled service context prevents background synchronization or
+task execution; normal application schema/seed initialization still runs. Use an
+isolated database without model configuration or active tasks. The command is a
+CVE subset check; it does not certify Compose deployment or platform acceptance.
+Execution results must be recorded separately after the check actually runs.
+
 ## Backup and recovery
 
 Before upgrading, stop task admission and wait for in-flight work to settle.
