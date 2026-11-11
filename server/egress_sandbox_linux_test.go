@@ -357,19 +357,27 @@ func TestEgressSandboxExplicitDirectFallbackIsRecorded(t *testing.T) {
 		t.Fatalf("sandbox missing: %v", err)
 	}
 	_ = exec.Command("kill", "-9", strconv.Itoa(sandbox.PID)).Run()
+	// The failure event is written before the lease is renegotiated, so the state
+	// flips a moment later. Poll for the transition instead of sampling the exact
+	// instant the audit row appears.
 	deadline := time.Now().Add(20 * time.Second)
+	sawEvent := false
 	for time.Now().Before(deadline) {
 		current := api("GET", "/api/tasks/"+task.id+"/egress", nil)
 		encoded, _ := json.Marshal(current)
 		if strings.Contains(string(encoded), "sandbox_failed") {
-			if !strings.Contains(string(encoded), `"state":"direct"`) {
-				t.Fatalf("direct policy was not kept: %s", encoded)
+			sawEvent = true
+			if current["state"] == "direct" {
+				return
 			}
-			return
 		}
 		time.Sleep(200 * time.Millisecond)
 	}
-	t.Fatal("relay death never produced an audit event")
+	encoded, _ := json.Marshal(api("GET", "/api/tasks/"+task.id+"/egress", nil))
+	if sawEvent {
+		t.Fatalf("direct policy was not applied after relay death: %s", encoded)
+	}
+	t.Fatalf("relay death never produced an audit event: %s", encoded)
 }
 
 // newEgressAPI builds the authenticated API helper shared by these tests.
