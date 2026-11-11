@@ -8,6 +8,7 @@ import (
 	"fmt"
 	"io"
 	"net/url"
+	"regexp"
 	"strings"
 
 	"gopkg.in/yaml.v3"
@@ -52,8 +53,15 @@ func Validate(content []byte) (Metadata, error) {
 	if metadata.ID == "" || !ok {
 		return Metadata{}, fmt.Errorf("%w: id and info are required", ErrInvalidTemplate)
 	}
-	if err := allowKeys(info, "name", "author", "severity", "description", "reference", "tags"); err != nil {
+	if err := allowKeys(info, "name", "author", "severity", "description", "reference", "tags", "metadata", "classification"); err != nil {
 		return Metadata{}, err
+	}
+	for _, key := range []string{"metadata", "classification"} {
+		if value, exists := info[key]; exists {
+			if _, ok := value.(map[string]any); !ok {
+				return Metadata{}, fmt.Errorf("%w: %s must be descriptive metadata", ErrInvalidTemplate, key)
+			}
+		}
 	}
 	metadata.Name = text(info["name"])
 	metadata.Author = text(info["author"])
@@ -83,8 +91,16 @@ func Validate(content []byte) (Metadata, error) {
 		if !ok {
 			return Metadata{}, fmt.Errorf("%w: HTTP check must be a mapping", ErrInvalidTemplate)
 		}
-		if err := allowKeys(request, "method", "path", "matchers"); err != nil {
+		if err := allowKeys(request, "method", "path", "matchers", "matchers-condition", "extractors", "stop-at-first-match"); err != nil {
 			return Metadata{}, err
+		}
+		if err := validateCondition(request, "matchers-condition"); err != nil {
+			return Metadata{}, err
+		}
+		if value, ok := request["stop-at-first-match"]; ok {
+			if _, ok := value.(bool); !ok {
+				return Metadata{}, fmt.Errorf("%w: stop-at-first-match must be boolean", ErrInvalidTemplate)
+			}
 		}
 		if strings.ToUpper(text(request["method"])) != "GET" {
 			return Metadata{}, fmt.Errorf("%w: only passive GET checks are accepted", ErrInvalidTemplate)
@@ -97,26 +113,35 @@ func Validate(content []byte) (Metadata, error) {
 			pathCount++
 			path := text(pathValue)
 			remainder := strings.TrimPrefix(path, "{{BaseURL}}")
-			if pathCount > 16 || len(path) > 2048 || !strings.HasPrefix(path, "{{BaseURL}}/") || strings.ContainsAny(path, "\r\n") || strings.Contains(remainder, "{{") || strings.Contains(remainder, "}}") {
+			if pathCount > 16 || len(path) > 2048 || (path != "{{BaseURL}}" && !strings.HasPrefix(path, "{{BaseURL}}/")) || strings.ContainsAny(path, "\r\n") || strings.Contains(remainder, "{{") || strings.Contains(remainder, "}}") {
 				return Metadata{}, fmt.Errorf("%w: paths must be static paths under BaseURL", ErrInvalidTemplate)
 			}
 		}
 		matchers, ok := request["matchers"].([]any)
-		if !ok || len(matchers) == 0 {
+		if !ok || len(matchers) == 0 || len(matchers) > 32 {
 			return Metadata{}, fmt.Errorf("%w: HTTP check requires a matcher", ErrInvalidTemplate)
 		}
 		for _, matcherValue := range matchers {
 			matcher, ok := matcherValue.(map[string]any)
-			if !ok || allowKeys(matcher, "type", "status") != nil || text(matcher["type"]) != "status" {
-				return Metadata{}, fmt.Errorf("%w: only status matchers are accepted", ErrInvalidTemplate)
+			if !ok {
+				return Metadata{}, fmt.Errorf("%w: matcher must be a mapping", ErrInvalidTemplate)
 			}
-			statuses, ok := matcher["status"].([]any)
-			if !ok || len(statuses) == 0 {
-				return Metadata{}, fmt.Errorf("%w: status matcher requires status codes", ErrInvalidTemplate)
+			if err := validateMatcher(matcher); err != nil {
+				return Metadata{}, err
 			}
-			for _, status := range statuses {
-				if number, ok := status.(int); !ok || number < 100 || number > 599 {
-					return Metadata{}, fmt.Errorf("%w: status code is out of range", ErrInvalidTemplate)
+		}
+		if values, exists := request["extractors"]; exists {
+			extractors, ok := values.([]any)
+			if !ok || len(extractors) > 16 {
+				return Metadata{}, fmt.Errorf("%w: invalid extractors", ErrInvalidTemplate)
+			}
+			for _, value := range extractors {
+				extractor, ok := value.(map[string]any)
+				if !ok {
+					return Metadata{}, fmt.Errorf("%w: extractor must be a mapping", ErrInvalidTemplate)
+				}
+				if err := validateExtractor(extractor); err != nil {
+					return Metadata{}, err
 				}
 			}
 		}
@@ -124,6 +149,138 @@ func Validate(content []byte) (Metadata, error) {
 	hash := sha256.Sum256(content)
 	metadata.ContentHash = hex.EncodeToString(hash[:])
 	return metadata, nil
+}
+
+func validateCondition(value map[string]any, key string) error {
+	if condition, exists := value[key]; exists && condition != "and" && condition != "or" {
+		return fmt.Errorf("%w: %s must be and or or", ErrInvalidTemplate, key)
+	}
+	return nil
+}
+
+func validatePart(value map[string]any) error {
+	if part, exists := value["part"]; exists && part != "body" && part != "header" && part != "all" {
+		return fmt.Errorf("%w: part must be body, header or all", ErrInvalidTemplate)
+	}
+	return nil
+}
+
+func validateStrings(value any, regex bool) error {
+	values, ok := value.([]any)
+	if !ok || len(values) == 0 || len(values) > 32 {
+		return fmt.Errorf("%w: expected 1 to 32 string values", ErrInvalidTemplate)
+	}
+	for _, value := range values {
+		item, ok := value.(string)
+		if !ok || item == "" || len(item) > 4096 || strings.Contains(item, "{{") {
+			return fmt.Errorf("%w: static string required", ErrInvalidTemplate)
+		}
+		if regex {
+			if _, err := regexp.Compile(item); err != nil {
+				return fmt.Errorf("%w: invalid regular expression: %v", ErrInvalidTemplate, err)
+			}
+		}
+	}
+	return nil
+}
+
+func validateMatcher(m map[string]any) error {
+	if err := validateName(m); err != nil {
+		return err
+	}
+	kind := text(m["type"])
+	if err := validateCondition(m, "condition"); err != nil {
+		return err
+	}
+	if err := validatePart(m); err != nil {
+		return err
+	}
+	switch kind {
+	case "status":
+		if err := allowKeys(m, "type", "status", "condition", "name", "negative"); err != nil {
+			return err
+		}
+		values, ok := m["status"].([]any)
+		if !ok || len(values) == 0 || len(values) > 100 {
+			return fmt.Errorf("%w: status matcher requires codes", ErrInvalidTemplate)
+		}
+		for _, value := range values {
+			code, ok := value.(int)
+			if !ok || code < 100 || code > 599 {
+				return fmt.Errorf("%w: invalid status code", ErrInvalidTemplate)
+			}
+		}
+	case "word", "regex":
+		key := "words"
+		if kind == "regex" {
+			key = "regex"
+		}
+		if err := allowKeys(m, "type", key, "part", "condition", "name", "negative", "case-insensitive"); err != nil {
+			return err
+		}
+		if err := validateStrings(m[key], kind == "regex"); err != nil {
+			return err
+		}
+	default:
+		return fmt.Errorf("%w: supported matcher types are status, word and regex", ErrInvalidTemplate)
+	}
+	for _, key := range []string{"negative", "case-insensitive"} {
+		if value, exists := m[key]; exists {
+			if _, ok := value.(bool); !ok {
+				return fmt.Errorf("%w: %s must be boolean", ErrInvalidTemplate, key)
+			}
+		}
+	}
+	return nil
+}
+
+func validateExtractor(m map[string]any) error {
+	if err := validateName(m); err != nil {
+		return err
+	}
+	if err := validatePart(m); err != nil {
+		return err
+	}
+	kind := text(m["type"])
+	switch kind {
+	case "regex":
+		if err := allowKeys(m, "type", "regex", "part", "name", "group"); err != nil {
+			return err
+		}
+		if err := validateStrings(m["regex"], true); err != nil {
+			return err
+		}
+		if group, exists := m["group"]; exists {
+			number, ok := group.(int)
+			if !ok || number < 0 || number > 32 {
+				return fmt.Errorf("%w: invalid extraction group", ErrInvalidTemplate)
+			}
+			for _, value := range m["regex"].([]any) {
+				expression, _ := regexp.Compile(value.(string))
+				if number > expression.NumSubexp() {
+					return fmt.Errorf("%w: extraction group does not exist", ErrInvalidTemplate)
+				}
+			}
+		}
+	case "kval":
+		if err := allowKeys(m, "type", "kval", "part", "name"); err != nil {
+			return err
+		}
+		return validateStrings(m["kval"], false)
+	default:
+		return fmt.Errorf("%w: supported extractor types are regex and kval", ErrInvalidTemplate)
+	}
+	return nil
+}
+
+func validateName(value map[string]any) error {
+	if name, exists := value["name"]; exists {
+		text, ok := name.(string)
+		if !ok || text == "" || len(text) > 256 || strings.Contains(text, "{{") {
+			return fmt.Errorf("%w: matcher/extractor name must be a static string", ErrInvalidTemplate)
+		}
+	}
+	return nil
 }
 
 func allowKeys(values map[string]any, allowed ...string) error {

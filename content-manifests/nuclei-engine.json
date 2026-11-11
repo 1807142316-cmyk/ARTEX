@@ -20,14 +20,22 @@
   },
   "capabilities": [
     "http-static-get",
-    "status-matchers",
+    "status-word-regex-matchers",
+    "body-header-matchers",
+    "regex-kval-extractors",
     "request-response-evidence"
   ],
   "template_source": "db/scan-templates",
   "template_license": "AGPL-3.0-only",
   "template_source_version": "artex-authored-v1",
   "template_count": 3,
-  "notes": "Authored informational configuration checks; no community template corpus is bundled. Linux asset hashes are verified by Dockerfile.source during image build. Windows engine was downloaded and exercised through authenticated HTTP integration tests.",
+  "official_template_bundle": {
+    "manifest": "scantemplate/bundles/official/manifest.json",
+    "license": "MIT",
+    "source_version": "13f9bc679405927b7f78eb5dfd3e7260ed3d40f3",
+    "template_count": 11
+  },
+  "notes": "Three authored checks plus eleven unchanged official HTTP identification/configuration templates. The official bundle manifest records per-file hashes and original upstream paths. Linux asset hashes are verified by Dockerfile.source during image build. Windows engine was downloaded and exercised through authenticated HTTP integration tests.",
   "templates": [
     {
       "path": "db/scan-templates/artex-robots-index.yaml",

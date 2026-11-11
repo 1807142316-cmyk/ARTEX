@@ -14,7 +14,8 @@ COPY . .
 COPY --from=web /src/web/out/ ./server/webui/dist/
 ARG TARGETARCH
 RUN CGO_ENABLED=0 GOOS=linux GOARCH=${TARGETARCH:-amd64} go build -trimpath -tags embedui -o /out/artex ./cmd/artex \
-    && CGO_ENABLED=0 GOOS=linux GOARCH=${TARGETARCH:-amd64} go build -trimpath -o /out/cve-import ./cmd/cve-import
+    && CGO_ENABLED=0 GOOS=linux GOARCH=${TARGETARCH:-amd64} go build -trimpath -o /out/cve-import ./cmd/cve-import \
+    && CGO_ENABLED=0 GOOS=linux GOARCH=${TARGETARCH:-amd64} go build -trimpath -o /out/template-import ./cmd/template-import
 
 FROM debian:bookworm-slim AS scanengine
 ARG TARGETARCH
@@ -38,12 +39,12 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     && playwright install --with-deps chromium \
     && rm -rf /var/lib/apt/lists/*
 WORKDIR /app
-COPY --from=backend /out/artex /out/cve-import ./
+COPY --from=backend /out/artex /out/cve-import /out/template-import ./
 COPY --from=scanengine /engine/nuclei /usr/local/bin/nuclei
 COPY --from=scanengine /engine/LICENSE.md /usr/share/doc/nuclei/LICENSE.md
 COPY start.sh ./
 COPY skills/ ./skills/
-RUN chmod +x /app/artex /app/cve-import /app/start.sh
+RUN chmod +x /app/artex /app/cve-import /app/template-import /app/start.sh
 VOLUME ["/app/data"]
 EXPOSE 8787 8788
 ENTRYPOINT ["/app/start.sh"]

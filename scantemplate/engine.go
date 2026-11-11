@@ -26,11 +26,12 @@ type EngineStatus struct {
 }
 
 type Match struct {
-	Matched   bool   `json:"matched"`
-	URL       string `json:"url"`
-	Request   string `json:"request"`
-	Response  string `json:"response"`
-	FindingID int64  `json:"finding_id,omitempty"`
+	Matched   bool     `json:"matched"`
+	URL       string   `json:"url"`
+	Request   string   `json:"request"`
+	Response  string   `json:"response"`
+	FindingID int64    `json:"finding_id,omitempty"`
+	Extracted []string `json:"extracted,omitempty"`
 }
 
 func EnginePath() string {
@@ -41,7 +42,7 @@ func EnginePath() string {
 }
 
 func CheckEngine(ctx context.Context) EngineStatus {
-	status := EngineStatus{Version: EngineVersion, Capabilities: []string{"http-static-get", "status-matchers", "request-response-evidence"}}
+	status := EngineStatus{Version: EngineVersion, Capabilities: []string{"http-static-get", "status-word-regex-matchers", "body-header-matchers", "regex-kval-extractors", "request-response-evidence"}}
 	ctx, cancel := context.WithTimeout(ctx, 5*time.Second)
 	defer cancel()
 	var out limitedOutput
@@ -174,10 +175,11 @@ func RunWithProxy(ctx context.Context, content, target, proxyURL, caFile string)
 	results := []Match{}
 	for {
 		var event struct {
-			URL      string `json:"matched-at"`
-			Request  string `json:"request"`
-			Response string `json:"response"`
-			Matched  bool   `json:"matcher-status"`
+			URL       string   `json:"matched-at"`
+			Request   string   `json:"request"`
+			Response  string   `json:"response"`
+			Matched   bool     `json:"matcher-status"`
+			Extracted []string `json:"extracted-results"`
 		}
 		if err := decoder.Decode(&event); err == io.EOF {
 			break
@@ -187,7 +189,7 @@ func RunWithProxy(ctx context.Context, content, target, proxyURL, caFile string)
 		if len(results) >= 32 {
 			return nil, errors.New("Nuclei result limit exceeded")
 		}
-		results = append(results, Match{Matched: event.Matched, URL: event.URL, Request: event.Request, Response: event.Response})
+		results = append(results, Match{Matched: event.Matched, URL: event.URL, Request: event.Request, Response: event.Response, Extracted: event.Extracted})
 	}
 	if len(results) == 0 {
 		return nil, errors.New("Nuclei produced no result events; template compatibility or request execution failed")

@@ -1338,7 +1338,14 @@ export interface ScanTemplateRun {
   error: string;
   created_at: string;
   finished_at: string | null;
-  matches: { matched: boolean; url: string; request: string; response: string; finding_id?: number }[];
+  matches: {
+    matched: boolean;
+    url: string;
+    request: string;
+    response: string;
+    finding_id?: number;
+    extracted?: string[];
+  }[];
 }
 
 // ---- Stats ----
