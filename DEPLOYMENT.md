@@ -134,7 +134,9 @@ offline queries, authenticated handlers against Compose PostgreSQL, database
 backup/restore/restart, seventeen workflow CLI tests, fourteen Agent package
 loads, actual template execution/import and six proxy gateway tests. Evidence is in
 `docs/screenshot-parity-linux-validation.md`. Whole-application Compose cold
-start, upgrades, Chromium and Linux metric comparison remain unverified.
+start, upgrades and Linux Chromium remain unverified. The process/container
+metrics HTTP check passed with an independently configured 128 MiB/0.5 CPU test
+container; this is not a full application deployment or accuracy benchmark.
 
 ## Local Linux runtime probe (2026-11-11)
 
