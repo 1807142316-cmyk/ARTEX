@@ -1652,3 +1652,12 @@ CREATE TABLE IF NOT EXISTS session_inventory_edge_audit (
  id BIGSERIAL PRIMARY KEY,edge_id BIGINT NOT NULL REFERENCES session_inventory_edges(id) ON DELETE CASCADE,
  state TEXT NOT NULL,note TEXT NOT NULL,created_at TIMESTAMPTZ NOT NULL DEFAULT now()
 );
+
+-- Operator-reported results from fixed offline skill workflows, separate from Skill loads.
+CREATE TABLE IF NOT EXISTS skill_run_evidence (
+ id BIGSERIAL PRIMARY KEY, client_run_id TEXT NOT NULL UNIQUE,
+ skill TEXT NOT NULL, task_id BIGINT REFERENCES tasks(id) ON DELETE SET NULL,
+ outcome TEXT NOT NULL, content_hash TEXT NOT NULL, evidence JSONB NOT NULL,
+ received_at TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+CREATE INDEX IF NOT EXISTS idx_skill_run_evidence_skill ON skill_run_evidence(skill,id DESC);
