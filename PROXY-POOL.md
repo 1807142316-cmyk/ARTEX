@@ -46,8 +46,14 @@ when the pool is enabled. The actual Agent-assembled Playwright MCP/Chromium
 test passed on Windows with two tasks assigned two different proxies, including
 an inherited `NO_PROXY=*`; both navigations returned their assigned exit marker
 and left persisted browser arguments unchanged. Six HTTP/PostgreSQL proxy tests
-also passed on Linux, covering the gateway behavior below. Linux Chromium and
-complete application deployment still need acceptance. These checks cover
+also passed on Linux, covering the gateway behavior below. The same actual
+Agent-assembled browser test subsequently passed on Ubuntu 22.04 with Node
+24.22.1, Playwright MCP 0.0.85 and Chrome for Testing 158.0.8127.18 at source
+`8039cb6`. It exercised two distinct task exits with inherited `NO_PROXY=*` and
+preserved persisted MCP arguments. Tooling and shared libraries were extracted
+only into the independent validation directory; no system packages or existing
+service configuration were changed. Complete application deployment still needs
+acceptance, and the raw/non-proxy-aware traffic exclusions above remain. These checks cover
 parallel exit separation, stable retries, proxy failure/default pause, explicit
 failover/direct fallback with recorded transitions, recording on/off parity,
 SOCKS5 forwarding, authentication and credential redaction.

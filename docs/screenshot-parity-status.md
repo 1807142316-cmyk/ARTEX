@@ -12,7 +12,7 @@
 | #5 CVE | 官方全量421,793条在独立 Linux Compose PostgreSQL 实际导入；原库及恢复库认证 HTTP 检索、统计、原始记录、离线查询、备份恢复和重启检查通过 | Ticket 数据验收完成；整套应用镜像部署和升级仍由父 spec 跟踪 |
 | #6 模板 | 固定 Nuclei 3.4.10；11 条官方 MIT 原文模板及 3 条原创检查；status/word/regex、正文/头匹配及提取；原子离线导入、历史快照、候选证据、取消和任务代理；Linux 8 项 HTTP/实际引擎与 5 项语法/包测试通过 | 已关闭；兼容范围见 SCANNING.md，完整社区格式及父 spec 整体内容对齐不能据此判定完成 |
 | #7 技能 | 16 个新增 Python 标准库工作流，保留原 3 包；分类/目录/导入/编辑及绑定保护、精确加载上下文、固定离线工作流输入摘要/输出/退出结果；Linux 31 项 CLI、16 包哈希及 6 项真实 HTTP/PostgreSQL 验收通过 | 已关闭；执行报告标为操作方上报，未知私有技能目录与完整截图能力对齐由父 #1 跟踪，不能据此宣称全部复刻 |
-| #8 代理池 | 原有池/租约/健康/故障/审计与任务 HTTP/录制/模板接线；新增 Windows 实际 Agent MCP/Chromium 双任务不同出口验收，Linux 6 项网关 HTTP/PostgreSQL 回归通过 | Linux Chromium 尚未验收；原始 TCP/UDP、DNS及忽略代理设置的程序不受透明强制，完整目标流量策略尚不满足，保持开启 |
+| #8 代理池 | 原有池/租约/健康/故障/审计与任务 HTTP/录制/模板接线；Windows 和 Linux 实际 Agent MCP/Chromium 双任务不同出口验收通过，Linux 6 项网关 HTTP/PostgreSQL 回归通过 | 原始 TCP/UDP、DNS及忽略代理设置的程序不受透明强制，完整目标流量策略尚不满足，保持开启 |
 | #9 C2/WebShell | 新增认证的外部会话观察登记、心跳/过期/断开、任务资产关联、审计、页面及实际 HTTP 健康观察 CLI；5 项真实 HTTP/PostgreSQL 测试通过 | 观察模块不等于 C2/WebShell 控制适配器；真实 HTTP/PHP 协议操作未交付，交互式浏览器验收未运行，保持开启 |
 | #10 内网拓扑 | 新增显式主机/网段/会话/隧道元数据/凭据引用关系、失效传播、任务筛选及审计；不按同网段推断边 | 依赖的真实控制会话适配器及 worker 内网上下文未交付，保持开启 |
 | #11 CVE更新 | 默认定时同步、立即更新/开关、持久化状态/游标、互斥、恢复、遗漏窗口协调、缓存校验/保留策略；真实 HTTP/PostgreSQL 测试覆盖 | Linux整体验收仍由父 spec 跟踪 |
@@ -27,7 +27,7 @@
 - 后续 `e7cddcc` 的 31 项技能 CLI 测试及 16 包哈希在 Windows Python 3.11 和 Linux Python 3.10.12 全部通过。`8039cb6` 在独立 Linux Compose PostgreSQL 上通过 6 项认证 HTTP 测试，0 失败、0 跳过：包括 16 包实际 Agent 加载/计数、分类及绑定保护、加载上下文、真实 CLI 上报、不可变历史、包修改/删除后的重试、任务删除/应用重建及控制字符输出。日志归档哈希见 Linux 运行记录。技能详情新面板通过 TypeScript 和 36 页静态构建；本轮没有新增交互式浏览器验收。
 - 公共 norma Bash/curl 实测池模式清空继承的 `NO_PROXY` 后经过代理，旧模式继续保留原绕过行为。真实子进程分别输出 13 MiB stdout、stderr 和错误文件，三种有界处理均通过。
 - 浏览器实际验证快速开始与阶段切换、知识检索/正文匹配开关/来源证据预览/候选整理/来源历史、完整 CVE 语料检索/原始记录展开/自动开关，以及真实 Nuclei 执行/完成记录/请求响应预览/待审发现标记。
-- 代理管理页面已实际验证添加/检查/观测 IP/分配。后续 Windows 实际 Agent MCP/Chromium 导航也验证双任务不同出口及继承 NO_PROXY 的处理；Linux 的 6 项网关测试通过，Linux Chromium 尚未运行。
+- 代理管理页面已实际验证添加/检查/观测 IP/分配。Windows 和 Linux 实际 Agent MCP/Chromium 导航都验证双任务不同出口及继承 `NO_PROXY=*` 的处理；Linux 的 6 项网关测试通过。Linux 浏览器验收使用 `8039cb6`，独立测试 6.30 秒通过、零跳过，工具及库仅解压至验证目录，未安装系统包或修改现有服务。
 - 官方 `cve_2026-11-10_1900Z` 基线导入421,793条：402,649条 PUBLISHED、19,144条 REJECTED。ZIP SHA-256与来源见 `content-manifests/cve-baseline.json`。
 - `pg_dump` 完整导出并恢复至独立库，重新启动新版本应用后经认证HTTP确认统计仍为421,793，且可检索 `CVE-2021-44228`。
 - 本地内容在 `content/cve/`，包括官方ZIP、manifest及数据库备份；大文件排除Git。跟踪的manifest足以重新下载并核验原始ZIP。
@@ -46,4 +46,4 @@ Spec：已修复缺增量包时游标提前推进、坏缓存阻止重试、CVE�
 
 ## Linux 交付边界
 
-新增 `Dockerfile.source` 和 `compose.source.yml` 从本分支源码构建，步骤见根目录 `DEPLOYMENT.md`。Ubuntu 服务器已用于独立 CVE、模板、技能、代理、密钥回归及 Linux 指标口径验收，见[Linux记录](screenshot-parity-linux-validation.md)。整套应用镜像冷启动/升级和 Linux Chromium 出口仍未验收。源码 Compose override 已新增私有 JWT/config 持久卷；首次升级旧容器必须先按文档保存并恢复原密钥。整套平台部署曾被自动审批拒绝（`blocked by policy`），未替换服务器原 ARTEX；数据及受限工作流验收不能代表平台发布完成。
+新增 `Dockerfile.source` 和 `compose.source.yml` 从本分支源码构建，步骤见根目录 `DEPLOYMENT.md`。Ubuntu 服务器已用于独立 CVE、模板、技能、代理及实际 Chromium、密钥回归与 Linux 指标口径验收，见[Linux记录](screenshot-parity-linux-validation.md)。整套应用镜像冷启动/升级仍未验收。源码 Compose override 已新增私有 JWT/config 持久卷；首次升级旧容器必须先按文档保存并恢复原密钥。整套平台部署曾被自动审批拒绝（`blocked by policy`），未替换服务器原 ARTEX；数据及受限工作流验收不能代表平台发布完成。

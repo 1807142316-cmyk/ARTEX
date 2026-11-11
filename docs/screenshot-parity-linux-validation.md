@@ -239,3 +239,38 @@ skill evidence panel was integrated; no interactive browser acceptance of that
 new panel is claimed. These results complete #7's original criteria for the
 delivered catalog, while complete screenshot parity, Linux Chromium, whole-image
 deployment, C2/WebShell control and the intranet worker remain parent-spec gaps.
+The Linux Chromium gap was subsequently exercised as recorded below.
+
+## Actual Linux Agent browser egress
+
+`TestProxyPoolRealAgentBrowserKeepsTaskExitsSeparate` passed on Ubuntu 22.04 at
+source `8039cb6` in 6.30 seconds, with no skip. It invoked the actual
+Agent-assembled Playwright MCP `browser_navigate` tool for two tasks assigned
+different proxies. Each navigation returned its assigned proxy's marker with
+an observed upstream hit, despite inherited `NO_PROXY=*`; persisted browser
+arguments were unchanged. Targets and proxies were local test HTTP servers.
+
+The independently prepared runtime used Node 24.22.1, Playwright MCP 0.0.85,
+Playwright Core 1.66.0-alpha-2026-11-09 and Chrome for Testing 158.0.8127.18.
+Node's official SHASUMS256 entry verified its archive. Chrome came from the
+Playwright CDN path selected by the pinned package. Hashes are:
+
+| Artifact | SHA-256 |
+| --- | --- |
+| Node Linux x64 archive | `6c172a9ab6718f7b801fb5a7bd486af2ee5e32758086a04b84fcce2aa77095e6` |
+| Chrome Linux x64 ZIP | `c6cb06e1574ac2f6c5c38e31551157fbcaa67e6366c89974084553c5a5772592` |
+| Locked MCP dependency archive | `1e1ed7fe7a071961d07e1bbe117ce673c8b30002d4115765e84607daea9fc36d` |
+| Collected browser logs and manifest | `f2d5406038bfdb65976f737c8cc488c741be2abd502fc0118d127c2ed810ba49` |
+
+The 6,346-byte evidence archive was downloaded and verified locally. Its manifest
+also records the exact downloaded Ubuntu library packages. Missing libraries were
+downloaded and extracted into the private validation directory, selected through
+the test process's `LD_LIBRARY_PATH`; no packages were installed into the server
+and no existing service configuration was modified.
+
+The independent `browser_final_acceptance` PostgreSQL database was used, then its
+Compose container was stopped. No validation browser or Node process remained;
+the original ARTEX service was active and its health endpoint returned `ok: true`.
+This completes Linux browser-path acceptance for #8, but does not supply
+transparent raw TCP/UDP/DNS routing, constrain programs that ignore proxies, or
+certify full application deployment. #8 remains open for that broader requirement.
