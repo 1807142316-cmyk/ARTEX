@@ -675,22 +675,24 @@ func TestConnectionOperationsRecordSuccessFailureTimeoutAndUnsupported(t *testin
 }
 
 type operationRow struct {
-	ID         int64
-	AdapterID  int64
-	SessionID  int64
-	RequestID  string
-	Action     string
-	Status     string
-	Output     string
-	Error      string
-	ExitCode   *int
-	FinishedAt *time.Time
+	ID              int64
+	AdapterID       int64
+	SessionID       int64
+	RequestID       string
+	Action          string
+	Status          string
+	Output          string
+	Error           string
+	ExitCode        *int
+	FinishedAt      *time.Time
+	SessionSequence *int64
+	OutputRef       *string
 }
 
 func readOperation(t *testing.T, e *connectionTestEnv, sessionID int64, requestID string) (operationRow, bool) {
 	t.Helper()
 	var row operationRow
-	err := e.m.pg.QueryRowContext(context.Background(), `SELECT id,adapter_id,session_id,request_id,action,status,output,error,exit_code,finished_at FROM connection_operations WHERE session_id=$1 AND request_id=$2`, sessionID, requestID).Scan(&row.ID, &row.AdapterID, &row.SessionID, &row.RequestID, &row.Action, &row.Status, &row.Output, &row.Error, &row.ExitCode, &row.FinishedAt)
+	err := e.m.pg.QueryRowContext(context.Background(), `SELECT id,adapter_id,session_id,request_id,action,status,output,error,exit_code,finished_at,session_sequence,output_ref FROM connection_operations WHERE session_id=$1 AND request_id=$2`, sessionID, requestID).Scan(&row.ID, &row.AdapterID, &row.SessionID, &row.RequestID, &row.Action, &row.Status, &row.Output, &row.Error, &row.ExitCode, &row.FinishedAt, &row.SessionSequence, &row.OutputRef)
 	if err != nil {
 		if err == sql.ErrNoRows {
 			return row, false

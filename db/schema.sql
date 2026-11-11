@@ -1699,6 +1699,11 @@ CREATE TABLE IF NOT EXISTS connection_operations (
  UNIQUE (session_id, request_id)
 );
 CREATE INDEX IF NOT EXISTS idx_connection_operations_session ON connection_operations(session_id,id DESC);
+-- Additive operation detail: the session sequence the operation ran against, and
+-- a content reference for a non-empty output ("sha256:<hex>"). Both are nullable
+-- so pre-existing rows stay valid and older readers keep working.
+ALTER TABLE connection_operations ADD COLUMN IF NOT EXISTS session_sequence BIGINT;
+ALTER TABLE connection_operations ADD COLUMN IF NOT EXISTS output_ref TEXT;
 -- #10 topology + intranet: credential_ref nodes may carry an explicit expiry.
 -- Effective state is computed at read time (expired when expires_at<=now()),
 -- so a stale writer cannot leave a credential looking valid.

@@ -21,6 +21,7 @@ import (
 	"unicode/utf8"
 
 	"github.com/Autumn-27/artex/db"
+	"github.com/jackc/pgx/v5/pgconn"
 )
 
 // connectionCapabilities is the adapter-declared operation set. Any other
@@ -359,7 +360,7 @@ func (s *Server) saveConnectionAdapter(w http.ResponseWriter, r *http.Request) {
 			writeErr(w, 404, "adapter not found")
 			return
 		}
-		if strings.Contains(err.Error(), "idx_connection_adapters_name") {
+		if connectionAdapterNameConflict(err) {
 			writeErr(w, 409, "adapter name already exists")
 			return
 		}
@@ -371,6 +372,14 @@ func (s *Server) saveConnectionAdapter(w http.ResponseWriter, r *http.Request) {
 		code = 200
 	}
 	writeJSON(w, code, adapterView(adapter))
+}
+
+// connectionAdapterNameConflict reports whether err is a unique-violation on the
+// adapter name. It matches SQLSTATE 23505 rather than the constraint name in the
+// message, which is presentation text and varies by server version/locale.
+func connectionAdapterNameConflict(err error) bool {
+	var pgErr *pgconn.PgError
+	return errors.As(err, &pgErr) && pgErr.Code == "23505"
 }
 
 func (s *Server) deleteConnectionAdapter(w http.ResponseWriter, r *http.Request) {

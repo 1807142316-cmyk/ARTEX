@@ -2,7 +2,9 @@ package db
 
 import (
 	"context"
+	"crypto/sha256"
 	"database/sql"
+	"encoding/hex"
 	"errors"
 	"time"
 )
@@ -48,6 +50,12 @@ type ConnectionOperation struct {
 	Error       string     `json:"error"`
 	StartedAt   time.Time  `json:"started_at"`
 	FinishedAt  *time.Time `json:"finished_at"`
+	// SessionSequence is the inventory sequence the operation ran against, so a
+	// record can be tied to the observation that proved the session live.
+	SessionSequence *int64 `json:"session_sequence"`
+	// OutputRef is "sha256:<hex>" over the stored output, empty when there is no
+	// output to reference.
+	OutputRef string `json:"output_ref"`
 }
 
 const connectionAdapterColumns = `id,name,kind,base_url,sealed_secret,secret_ref,timeout_seconds,heartbeat_ttl_seconds,enabled,state,last_error,checked_at,task_id,asset_id,created_at,updated_at`
@@ -203,16 +211,36 @@ func (d *DB) ConnectionSessions(ctx context.Context, q string, page, limit int) 
 // connectionOperationColumns and scanConnectionOperation are the single place an
 // operation row's shape is declared, so every statement returns the same fields
 // in the same order.
-const connectionOperationColumns = `id,adapter_id,session_id,request_id,action,args_summary,status,exit_code,output,error,started_at,finished_at`
+const connectionOperationColumns = `id,adapter_id,session_id,request_id,action,args_summary,status,exit_code,output,error,started_at,finished_at,session_sequence,output_ref`
 
 func scanConnectionOperation(row interface{ Scan(...any) error }) (ConnectionOperation, error) {
 	var op ConnectionOperation
-	err := row.Scan(&op.ID, &op.AdapterID, &op.SessionID, &op.RequestID, &op.Action, &op.ArgsSummary, &op.Status, &op.ExitCode, &op.Output, &op.Error, &op.StartedAt, &op.FinishedAt)
+	var outputRef *string
+	err := row.Scan(&op.ID, &op.AdapterID, &op.SessionID, &op.RequestID, &op.Action, &op.ArgsSummary, &op.Status, &op.ExitCode, &op.Output, &op.Error, &op.StartedAt, &op.FinishedAt, &op.SessionSequence, &outputRef)
+	if outputRef != nil {
+		op.OutputRef = *outputRef
+	}
 	return op, err
 }
 
+// connectionOperationOutputRef is the content reference stored alongside a
+// non-empty output. Empty output has no reference rather than the hash of the
+// empty string, which would imply there is something to verify.
+func connectionOperationOutputRef(output string) any {
+	if output == "" {
+		return nil
+	}
+	sum := sha256.Sum256([]byte(output))
+	return "sha256:" + hex.EncodeToString(sum[:])
+}
+
+// StartConnectionOperation records the request before it leaves the process.
+// The session's current sequence is captured here, at start, so the record says
+// which observation the operation believed it was running against.
 func (d *DB) StartConnectionOperation(ctx context.Context, adapterID, sessionID int64, requestID, action, argsSummary string) (ConnectionOperation, bool, error) {
-	op, err := scanConnectionOperation(d.QueryRowContext(ctx, `INSERT INTO connection_operations(adapter_id,session_id,request_id,action,args_summary,status) VALUES($1,$2,$3,$4,$5,'running') ON CONFLICT(session_id,request_id) DO NOTHING RETURNING `+connectionOperationColumns, adapterID, sessionID, requestID, action, argsSummary))
+	op, err := scanConnectionOperation(d.QueryRowContext(ctx, `INSERT INTO connection_operations(adapter_id,session_id,request_id,action,args_summary,status,session_sequence)
+ SELECT $1,$2,$3,$4,$5,'running',(SELECT sequence FROM session_inventory WHERE id=$2)
+ ON CONFLICT(session_id,request_id) DO NOTHING RETURNING `+connectionOperationColumns, adapterID, sessionID, requestID, action, argsSummary))
 	if errors.Is(err, sql.ErrNoRows) {
 		existing, e := d.connectionOperation(ctx, sessionID, requestID)
 		return existing, true, e
@@ -225,7 +253,7 @@ func (d *DB) connectionOperation(ctx context.Context, sessionID int64, requestID
 }
 
 func (d *DB) FinishConnectionOperation(ctx context.Context, id int64, status string, exitCode *int, output, errMsg string) (ConnectionOperation, error) {
-	return scanConnectionOperation(d.QueryRowContext(ctx, `UPDATE connection_operations SET status=$2,exit_code=$3,output=$4,error=$5,finished_at=now() WHERE id=$1 RETURNING `+connectionOperationColumns, id, status, exitCode, output, errMsg))
+	return scanConnectionOperation(d.QueryRowContext(ctx, `UPDATE connection_operations SET status=$2,exit_code=$3,output=$4,error=$5,output_ref=$6,finished_at=now() WHERE id=$1 RETURNING `+connectionOperationColumns, id, status, exitCode, output, errMsg, connectionOperationOutputRef(output)))
 }
 
 // ConnectionOperations returns one page of a session's operation history plus
