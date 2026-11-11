@@ -574,6 +574,10 @@ func (s *Server) agentsForTask(t *Task) *taskAgentBundle {
 	wk.SetProxyBypassDisabled(clearProxyBypass)
 	wk.SetWebSearch(s.webSearchFor("worker"))
 	wk.SetConstraintInject(s.constraintInjectWorker) // 操作约束注入 worker(可配置,默认开)
+	// #10 内网上下文：解析器按任务读 PostgreSQL，每次 run / 每次 intranet_* 调用都重新解析，
+	// 所以会话失联、凭据过期在本 run 内立即生效。执行适配器保持 nil——它会由 #9 的
+	// C2/WebShell 适配器接入；在那之前 intranet_exec 明确报不可用，而不是假装成功。
+	wk.SetIntranetContext(s.taskIntranetResolver)
 	pl := agent.NewPlanner(plannerRuntime, "task-router", s.m.dir, tx, plannerRuntime.CompactionWindow(), s.agentMaxTurns("planner"))
 	pl.SetFindingRecorder(s.evidenceStore())
 	pl.SetCompactionWindowResolver(plannerRuntime.CompactionWindow)

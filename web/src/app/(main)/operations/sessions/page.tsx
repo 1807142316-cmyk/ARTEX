@@ -10,10 +10,12 @@ import { Input } from "@/components/ui/input";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Textarea } from "@/components/ui/textarea";
 import {
+  type IntranetContext,
   type InventoryDetail,
   type InventoryGraph,
   type InventoryNode,
   type InventorySession,
+  type InventorySummary,
   inventoryAPI,
 } from "@/lib/session-inventory";
 
@@ -33,6 +35,42 @@ const relationNames: Record<string, string> = {
   tunnel_metadata: "隧道元数据",
   credential_reference: "凭据引用",
 };
+// Derived edge reasons. An empty reason means the edge is active, or that an
+// operator deactivated it explicitly — neither is a state to explain.
+const reasonNames: Record<string, string> = {
+  session_stale: "会话心跳失联",
+  session_disconnected: "会话已断开",
+  node_invalid: "节点已失效",
+  credential_expired: "凭据已过期",
+  tunnel_inactive: "隧道不可用",
+  task_mismatch: "跨任务归属",
+};
+// Intranet unavailability reasons, in the same vocabulary the API uses.
+const intranetReasonNames: Record<string, string> = {
+  no_session: "本任务尚无可用会话",
+  session_stale: "会话心跳失联，通道已不可用",
+  no_credential: "尚无可用凭据引用",
+  credential_expired: "凭据已过期",
+  integration_unreachable: "会话适配器不可达",
+};
+const summaryFields: { key: keyof InventorySummary; label: string }[] = [
+  { key: "hosts", label: "主机" },
+  { key: "subnets", label: "网段" },
+  { key: "sessions", label: "会话" },
+  { key: "tunnels", label: "隧道" },
+  { key: "credentials", label: "凭据" },
+  { key: "active_edges", label: "有效关系" },
+  { key: "inactive_edges", label: "无效关系" },
+];
+const heartbeatAge = (value?: string) => {
+  if (!value) return "—";
+  const age = Date.now() - new Date(value).getTime();
+  if (Number.isNaN(age) || age < 0) return "刚刚";
+  const minutes = Math.floor(age / 60000);
+  if (minutes < 1) return "不到 1 分钟";
+  if (minutes < 60) return `${minutes} 分钟前`;
+  return `${Math.floor(minutes / 60)} 小时前`;
+};
 const selectClass = "border-input bg-background h-9 rounded-md border px-3 text-sm";
 const formatTime = (value?: string) => (value ? new Date(value).toLocaleString() : "—");
 const errorText = (error: unknown) => (error instanceof Error ? error.message : "操作失败");
@@ -48,6 +86,7 @@ export default function SessionInventoryPage() {
   const [task, setTask] = useState("");
   const [detail, setDetail] = useState<InventoryDetail | null>(null);
   const [graph, setGraph] = useState<InventoryGraph | null>(null);
+  const [intranet, setIntranet] = useState<IntranetContext | null>(null);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
   const [busy, setBusy] = useState(false);
@@ -59,6 +98,8 @@ export default function SessionInventoryPage() {
     label: "",
     address: "",
     state: "active",
+    scope: "",
+    expires_at: "",
     task_id: "",
     asset_id: "",
   });
@@ -101,11 +142,18 @@ export default function SessionInventoryPage() {
     const id = selectedDetail.current;
     if (id !== null) void refreshDetail(id);
     try {
-      const [list, topology] = await Promise.all([inventoryAPI.sessions(params), inventoryAPI.graph(topologyParams)]);
+      const [list, topology, context] = await Promise.all([
+        inventoryAPI.sessions(params),
+        inventoryAPI.graph(topologyParams),
+        // The panel only exists for a concrete task: an unfiltered view has no
+        // single context to report.
+        task ? inventoryAPI.intranet(task) : Promise.resolve(null),
+      ]);
       if (request !== listRequest.current) return;
       setItems(list.items);
       setTotal(list.total);
       setGraph(topology);
+      setIntranet(context);
     } catch (err) {
       if (request === listRequest.current) setError(errorText(err));
     } finally {
@@ -149,6 +197,20 @@ export default function SessionInventoryPage() {
     ...(value.task_id ? { task_id: Number(value.task_id) } : {}),
     ...(value.asset_id ? { asset_id: Number(value.asset_id) } : {}),
   });
+  // expires_at / scope describe a credential reference only; sending them for a
+  // host or tunnel is refused by the API, so they are stripped before submit.
+  const nodePayload = () => {
+    const { expires_at, scope, ...rest } = nodeForm;
+    const credential = nodeForm.kind === "credential_ref";
+    return {
+      ...rest,
+      task_id: undefined,
+      asset_id: undefined,
+      ...numericRefs(nodeForm),
+      ...(credential && scope.trim() ? { scope: scope.trim() } : {}),
+      ...(credential && expires_at ? { expires_at: new Date(expires_at).toISOString() } : {}),
+    };
+  };
   const openNode = async (id: number) => {
     try {
       setNodeAudit(await inventoryAPI.nodeDetail(id));
@@ -396,6 +458,30 @@ export default function SessionInventoryPage() {
             只显示显式提交的节点与关系。网段成员关系不表示网络连通；隧道仅记录元数据，凭据仅保存引用标识。当前任务筛选：
             {task || "全部"}。
           </p>
+          {graph && (
+            <section aria-label="拓扑汇总" className="rounded-lg border p-4">
+              <h2 className="font-semibold">汇总 · {task ? `任务 ${task}` : "全部任务"}</h2>
+              <dl className="mt-3 grid grid-cols-2 gap-3 text-sm sm:grid-cols-4 lg:grid-cols-7">
+                {summaryFields.map((field) => (
+                  <div key={field.key}>
+                    <dt className="text-muted-foreground text-xs">{field.label}</dt>
+                    <dd className="font-semibold text-lg tabular-nums">{graph.summary[field.key]}</dd>
+                  </div>
+                ))}
+              </dl>
+              {graph.empty.nodes && task && (
+                <p role="status" className="mt-3 rounded border p-3 text-muted-foreground">
+                  该任务尚无拓扑节点：未登记主机、网段、隧道或凭据引用。节点只能由显式登记或来源观察写入，不会由同网段推断产生。
+                </p>
+              )}
+              {!graph.empty.edges && graph.summary.active_edges === 0 && (
+                <p role="status" className="mt-3 rounded border p-3 text-muted-foreground">
+                  已登记的关系当前全部无效，原因见下方每条关系的标记。
+                </p>
+              )}
+            </section>
+          )}
+          <IntranetPanel task={task} context={intranet} />
           {graph?.truncated && <p role="status">图已达到 500 节点 / 1000 关系上限，请按任务筛选。</p>}
           <div className="grid gap-4 lg:grid-cols-2">
             <section className="rounded-lg border p-4">
@@ -409,7 +495,12 @@ export default function SessionInventoryPage() {
                         {node.ref} · {node.kind} · {node.address || ""}
                       </div>
                     </div>
-                    <Badge variant="outline">{stateNames[node.effective_state] ?? node.effective_state}</Badge>
+                    <Badge variant={node.effective_state === "active" ? "default" : "outline"}>
+                      {stateNames[node.effective_state] ?? node.effective_state}
+                    </Badge>
+                    {node.expires_at && (
+                      <span className="text-muted-foreground text-xs">到期 {formatTime(node.expires_at)}</span>
+                    )}
                     {node.kind !== "session" && (
                       <Button size="sm" variant="ghost" onClick={() => void openNode(node.id)}>
                         审计
@@ -417,7 +508,11 @@ export default function SessionInventoryPage() {
                     )}
                   </div>
                 ))}
-                {!graph?.nodes.length && <p className="text-muted-foreground text-sm">尚无节点。</p>}
+                {!graph?.nodes.length && (
+                  <p className="text-muted-foreground text-sm">
+                    {task ? "该任务尚无节点。" : "尚无节点。先在上方选择任务，或在下方登记节点。"}
+                  </p>
+                )}
               </div>
             </section>
             <section className="rounded-lg border p-4">
@@ -428,9 +523,16 @@ export default function SessionInventoryPage() {
                     <div className="break-all">
                       {edge.source_ref} → {edge.target_ref}
                     </div>
-                    <div>
-                      {relationNames[edge.relation] ?? edge.relation} ·{" "}
-                      {stateNames[edge.effective_state] ?? edge.effective_state}
+                    <div className="flex flex-wrap items-center gap-2">
+                      <span>
+                        {relationNames[edge.relation] ?? edge.relation} ·{" "}
+                        {stateNames[edge.effective_state] ?? edge.effective_state}
+                      </span>
+                      {edge.reason && (
+                        <Badge variant="outline" title={edge.reason}>
+                          {reasonNames[edge.reason] ?? edge.reason}
+                        </Badge>
+                      )}
                     </div>
                     <p className="text-muted-foreground">{edge.note}</p>
                     <Button size="sm" variant="ghost" onClick={() => void openEdgeAudit(edge.id)}>
@@ -438,7 +540,11 @@ export default function SessionInventoryPage() {
                     </Button>
                   </div>
                 ))}
-                {!graph?.edges.length && <p className="text-muted-foreground text-sm">尚未提交显式关系。</p>}
+                {!graph?.edges.length && (
+                  <p className="text-muted-foreground text-sm">
+                    {task ? "该任务尚未提交显式关系。" : "尚未提交显式关系。"}
+                  </p>
+                )}
               </div>
             </section>
           </div>
@@ -467,6 +573,25 @@ export default function SessionInventoryPage() {
                   ))}
                 </select>
               </div>
+              {nodeForm.kind === "credential_ref" && (
+                <>
+                  <Input
+                    aria-label="节点 scope"
+                    placeholder="凭据适用范围（如 host / domain，仅描述）"
+                    value={nodeForm.scope}
+                    onChange={(e) => setNodeForm({ ...nodeForm, scope: e.target.value })}
+                  />
+                  <div className="flex items-center gap-2 text-sm">
+                    <span className="text-muted-foreground">过期时间（留空为不过期）</span>
+                    <Input
+                      aria-label="节点过期时间"
+                      type="datetime-local"
+                      value={nodeForm.expires_at}
+                      onChange={(e) => setNodeForm({ ...nodeForm, expires_at: e.target.value })}
+                    />
+                  </div>
+                </>
+              )}
               {(["external_ref", "label", "address", "task_id", "asset_id"] as const).map((field) => (
                 <Input
                   key={field}
@@ -486,18 +611,7 @@ export default function SessionInventoryPage() {
               ))}
               <Button
                 disabled={busy || !nodeForm.external_ref || !nodeForm.label}
-                onClick={() =>
-                  void run(
-                    () =>
-                      inventoryAPI.node({
-                        ...nodeForm,
-                        task_id: undefined,
-                        asset_id: undefined,
-                        ...numericRefs(nodeForm),
-                      }),
-                    "节点已保存",
-                  )
-                }
+                onClick={() => void run(() => inventoryAPI.node(nodePayload()), "节点已保存")}
               >
                 保存节点
               </Button>
@@ -614,5 +728,96 @@ export default function SessionInventoryPage() {
         </TabsContent>
       </Tabs>
     </div>
+  );
+}
+
+// IntranetPanel shows the task-scoped context the worker would receive: the
+// worker_intranet variant when a valid session and credential exist, and the
+// explicit reason it does not otherwise. This mirrors what the model sees, so an
+// operator can tell "the worker has no route" apart from "the worker is ignoring
+// the route it has".
+function IntranetPanel({ task, context }: { task: string; context: IntranetContext | null }) {
+  if (!task) {
+    return (
+      <section aria-label="内网上下文" className="rounded-lg border p-4 text-sm">
+        <h2 className="font-semibold">内网上下文</h2>
+        <p className="mt-1 text-muted-foreground">
+          按任务查看。选择任务后显示该任务的 worker 内网变体与可用性原因；未选任务时不提供跨任务视图。
+        </p>
+      </section>
+    );
+  }
+  if (!context) {
+    return (
+      <section aria-label="内网上下文" className="rounded-lg border p-4 text-sm">
+        <h2 className="font-semibold">内网上下文</h2>
+        <p className="mt-1 text-muted-foreground">正在读取任务 {task} 的内网上下文…</p>
+      </section>
+    );
+  }
+  return (
+    <section aria-label="内网上下文" className="space-y-3 rounded-lg border p-4 text-sm">
+      <div className="flex flex-wrap items-center justify-between gap-2">
+        <h2 className="font-semibold">内网上下文 · 任务 {task}</h2>
+        <Badge variant={context.available ? "default" : "outline"}>{context.variant}</Badge>
+      </div>
+      {context.available ? (
+        <>
+          <p className="text-muted-foreground">
+            该任务的 worker 会收到以下会话与凭据，并只能用于本任务。会话失效或凭据过期后，下一次工具调用即被拒绝。
+          </p>
+          <div className="grid gap-4 lg:grid-cols-2">
+            <div>
+              <h3 className="mb-2 font-medium">可用会话 ({context.sessions.length})</h3>
+              {context.sessions.length ? (
+                context.sessions.map((session) => (
+                  <div key={session.id} className="rounded border p-2">
+                    <div className="break-all">
+                      会话 #{session.id} · {session.host || "未提供主机"}
+                    </div>
+                    <div className="text-muted-foreground text-xs">
+                      {session.protocol || "未提供协议"} · 心跳 {heartbeatAge(session.heartbeat_at)} ·{" "}
+                      {session.state}
+                    </div>
+                    <div className="break-all text-muted-foreground text-xs">{session.url || "—"}</div>
+                  </div>
+                ))
+              ) : (
+                <p className="text-muted-foreground">无可用会话。</p>
+              )}
+            </div>
+            <div>
+              <h3 className="mb-2 font-medium">可用凭据引用 ({context.credentials.length})</h3>
+              {context.credentials.length ? (
+                context.credentials.map((credential) => (
+                  <div key={credential.ref} className="rounded border p-2">
+                    <div className="break-all">
+                      {credential.label} · {credential.ref}
+                    </div>
+                    <div className="text-muted-foreground text-xs">
+                      范围 {credential.scope || "未标注"} · {credential.state} · 到期{" "}
+                      {credential.expires_at ? formatTime(credential.expires_at) : "不过期"}
+                    </div>
+                  </div>
+                ))
+              ) : (
+                <p className="text-muted-foreground">无可用凭据引用。</p>
+              )}
+            </div>
+          </div>
+        </>
+      ) : (
+        <div role="status" className="rounded border p-3">
+          <p className="font-medium">本任务暂无内网上下文</p>
+          <p className="mt-1 text-muted-foreground">
+            {intranetReasonNames[context.reason] ?? context.reason}
+            {context.reason ? <span className="ml-1 text-xs">({context.reason})</span> : null}
+          </p>
+          <p className="mt-1 text-muted-foreground text-xs">
+            worker 在不可用时不会收到任何内网提示；此处仅供运维定位原因。
+          </p>
+        </div>
+      )}
+    </section>
   );
 }

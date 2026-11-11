@@ -40,8 +40,16 @@ func (s *Server) saveInventoryNode(w http.ResponseWriter, r *http.Request) {
 		writeErr(w, 400, "id/ref/updated_at are server managed")
 		return
 	}
-	if n.ExternalRef == "" || n.Label == "" || !validInventoryText(n.ExternalRef, 256) || !validInventoryText(n.Label, 256) || !validInventoryText(n.Address, 256) || (n.State != "active" && n.State != "invalid" && n.State != "expired") {
+	n.Scope = strings.TrimSpace(n.Scope)
+	if n.ExternalRef == "" || n.Label == "" || !validInventoryText(n.ExternalRef, 256) || !validInventoryText(n.Label, 256) || !validInventoryText(n.Address, 256) || !validInventoryText(n.Scope, 64) || (n.State != "active" && n.State != "invalid" && n.State != "expired") {
 		writeErr(w, 400, "external_ref, label and active/invalid/expired state are required")
+		return
+	}
+	// expires_at and scope describe a credential reference. Sending them for any
+	// other kind is a caller mistake worth refusing: silently dropping them would
+	// leave an operator believing a host had an expiry.
+	if n.Kind != "credential_ref" && (n.ExpiresAt != nil || n.Scope != "") {
+		writeErr(w, 400, "only credential_ref nodes may carry expires_at or scope")
 		return
 	}
 	switch n.Kind {
@@ -94,7 +102,9 @@ func (s *Server) saveInventoryEdge(w http.ResponseWriter, r *http.Request) {
 	if !inventoryJSON(w, r, &e) {
 		return
 	}
-	if e.ID != 0 || e.EffectiveState != "" || !e.UpdatedAt.IsZero() || e.SourceRef == e.TargetRef || !validInventoryText(e.SourceRef, 64) || !validInventoryText(e.TargetRef, 64) || !validInventoryText(e.Note, 2000) || (e.State != "active" && e.State != "inactive") {
+	// reason is derived on read like effective_state; a client that sends one is
+	// refused rather than having it silently dropped.
+	if e.ID != 0 || e.EffectiveState != "" || e.Reason != "" || !e.UpdatedAt.IsZero() || e.SourceRef == e.TargetRef || !validInventoryText(e.SourceRef, 64) || !validInventoryText(e.TargetRef, 64) || !validInventoryText(e.Note, 2000) || (e.State != "active" && e.State != "inactive") {
 		writeErr(w, 400, "invalid relationship metadata")
 		return
 	}

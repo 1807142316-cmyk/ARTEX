@@ -86,6 +86,14 @@ type Worker struct {
 	// maxTokensFn resolves the per-reply output cap in tokens, on the same
 	// per-run basis. nil or 0 = send no cap and let the endpoint decide.
 	maxTokensFn func() int
+	// intranetContext resolves the task-scoped intranet context for this run.
+	// nil = no intranet capability at all (no prompt block, no tools). It is
+	// consulted again on every intranet_* tool call, so a session that goes
+	// stale mid-run stops being usable immediately.
+	intranetContext func(ctx context.Context, taskID int64) (db.IntranetContext, bool)
+	// intranetExecutor executes commands through a session adapter. nil leaves
+	// intranet_exec present but explicitly unavailable (the pre-#9 state).
+	intranetExecutor IntranetExecutor
 }
 
 // WorkerSessionID returns the stable transcript key used by a worker intent.
@@ -384,6 +392,12 @@ func (w *Worker) execute(ctx context.Context, name string, taskID int64, as *db.
 	// then augment with the agent's visible skills/MCP. During the SDK settlement
 	// phase, Bash is hidden via Settlement.DisabledTools (no local gating needed).
 	base := append(tsx.WorkerTools(), w.extraTools...)
+	// 内网工具只在【本任务确有可用上下文】时注册：模型看不到用不了的通道，也就不会
+	// 编造一次 intranet_exec 调用来试探。每次调用都会重新解析上下文(见 intranet.go)。
+	intranet, intranetOK := w.resolveIntranet(ctx, taskID)
+	if intranetOK {
+		base = append(base, w.intranetTools(ctx, taskID)...)
+	}
 	// worker 刻意不给 MultiEdit/Glob/Grep：文件精改用 Edit、检索走 Bash(grep/find)，
 	// 收敛工具面、减少低价值调用。其余 SDK 默认工具(Read/Write/Edit/LS/Bash/Sleep)照常。
 	base = append(base, defaultToolsExcept("MultiEdit", "Glob", "Grep")...)
@@ -404,6 +418,11 @@ func (w *Worker) execute(ctx context.Context, name string, taskID int64, as *db.
 	ctx = intercept.WithReviewContext(ctx, runDir, intercept.ReviewBackground{})
 	overview := renderWorkerGraphOverview(tsx.graphOverviewData())
 	sysBody := workerSystem(w.proxyAddr, w.proxyCACert, w.workDir, runDir)
+	// 内网上下文块(段 [D])：只在可用时追加，不可用时一个字都不加——绝不把不可用原因
+	// 泄漏给模型，否则它会把注意力花在「为什么没有通道」上而不是完成意图。
+	if intranetOK {
+		sysBody += workerIntranetBlock(intranet)
+	}
 	if w.wantConstraints() {
 		sysBody += constraintBlock(ts) // 操作约束(若有)注入系统提示,worker 执行时严格遵守
 	}
