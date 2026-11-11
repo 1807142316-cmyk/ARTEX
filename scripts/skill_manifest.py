@@ -20,6 +20,7 @@ PACKAGES = {
     "container-inspect-review": ["https://docs.docker.com/reference/cli/docker/inspect/", "https://docs.docker.com/engine/security/"],
     "iam-policy-review": ["https://docs.aws.amazon.com/IAM/latest/UserGuide/reference_policies_elements.html", "https://docs.aws.amazon.com/IAM/latest/UserGuide/reference_policies_evaluation-logic.html"],
     "sbom-inventory-review": ["https://cyclonedx.org/docs/1.6/json/", "https://spdx.github.io/spdx-spec/v2.3/package-information/"],
+    "python-source-review": ["https://docs.python.org/3/library/ast.html", "https://docs.python.org/3/library/subprocess.html#security-considerations"],
 }
 
 

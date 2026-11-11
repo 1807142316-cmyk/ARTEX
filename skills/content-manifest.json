@@ -182,6 +182,29 @@
       ]
     },
     {
+      "name": "python-source-review",
+      "version": "artex-authored-1",
+      "license": "AGPL-3.0-only",
+      "authored_date": "2026-11-11",
+      "source_kind": "original-workflow-and-script",
+      "reference_urls": [
+        "https://docs.python.org/3/library/ast.html",
+        "https://docs.python.org/3/library/subprocess.html#security-considerations"
+      ],
+      "files": [
+        {
+          "path": "SKILL.md",
+          "bytes": 2519,
+          "sha256": "bd433cacd90fa200f4c091690dafb8f8e2ccec0662701ba64b6a17eaa9f2dc40"
+        },
+        {
+          "path": "scripts/run.py",
+          "bytes": 4686,
+          "sha256": "a43b1bcb6203f48428be6662cec7d3518a02966ebbace0ec16351ba5ee190de7"
+        }
+      ]
+    },
+    {
       "name": "report-evidence-index",
       "version": "artex-authored-1",
       "license": "AGPL-3.0-only",
