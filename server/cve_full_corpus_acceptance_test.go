@@ -78,27 +78,39 @@ func TestCVEFullCorpusAuthenticatedHTTPAcceptance(t *testing.T) {
 	if stateTotal != expected || yearTotal < 1 || yearTotal > expected {
 		t.Fatalf("inconsistent aggregates: total=%d states=%d dated=%d", expected, stateTotal, yearTotal)
 	}
-	search := func(query string) db.CVEPage {
+	search := func(query string, pageNumber, limit int) db.CVEPage {
 		t.Helper()
-		response := request("/api/cve?q="+url.QueryEscape(query)+"&limit=10", true)
+		response := request("/api/cve?q="+url.QueryEscape(query)+"&page="+strconv.Itoa(pageNumber)+"&limit="+strconv.Itoa(limit), true)
 		var page db.CVEPage
 		if err := json.Unmarshal(response.Body.Bytes(), &page); err != nil || response.Code != http.StatusOK {
 			t.Fatalf("full-corpus search %q: status=%d body=%s error=%v", query, response.Code, response.Body, err)
 		}
-		if page.Total < 1 || len(page.Items) < 1 || page.Page != 1 || page.Limit != 10 {
+		if page.Total < 1 || len(page.Items) < 1 || page.Page != pageNumber || page.Limit != limit {
 			t.Fatalf("full-corpus search %q returned no usable page: %+v", query, page)
 		}
 		return page
 	}
-	log4shell := search("CVE-2021-44228")
 	var record *db.CVERecord
-	for index := range log4shell.Items {
-		if log4shell.Items[index].ID == "CVE-2021-44228" {
-			record = &log4shell.Items[index]
+	const identifierPageSize, maxIdentifierPages = 100, 20
+	searched, matches := 0, 0
+	// Identifier text also matches descriptions and references, so newer related
+	// CVEs can sort ahead of the original record. Follow bounded public pages.
+	for pageNumber := 1; pageNumber <= maxIdentifierPages; pageNumber++ {
+		page := search("CVE-2021-44228", pageNumber, identifierPageSize)
+		matches = page.Total
+		searched += len(page.Items)
+		for index := range page.Items {
+			if page.Items[index].ID == "CVE-2021-44228" {
+				record = &page.Items[index]
+				break
+			}
+		}
+		if record != nil || pageNumber*identifierPageSize >= page.Total {
+			break
 		}
 	}
 	if record == nil {
-		t.Fatal("official CVE-2021-44228 record is absent from identifier search")
+		t.Fatalf("official CVE-2021-44228 record not found after reading %d of %d search matches (limit %d pages)", searched, matches, maxIdentifierPages)
 	}
 	if record.State != "PUBLISHED" || !strings.Contains(strings.ToLower(record.Description), "log4j") || len(record.Products) == 0 || len(record.References) == 0 || strings.TrimSpace(record.SourceVersion) == "" {
 		t.Fatalf("official Log4Shell metadata/source was not retained: %+v", record)
@@ -118,7 +130,7 @@ func TestCVEFullCorpusAuthenticatedHTTPAcceptance(t *testing.T) {
 		t.Fatalf("official raw record was not retained: id=%s error=%v raw=%s", record.ID, err, record.Raw)
 	}
 	for _, query := range []string{"Apache Log4j", "log4j-core", "cross-site scripting"} {
-		page := search(query)
+		page := search(query, 1, 10)
 		t.Logf("official corpus search %q: total=%d first=%s", query, page.Total, page.Items[0].ID)
 	}
 	t.Logf("official corpus accepted through authenticated HTTP: total=%d published=%d rejected=%d dated=%d Log4Shell-source=%s", stats.Total, stats.States["PUBLISHED"], stats.States["REJECTED"], yearTotal, record.SourceVersion)
