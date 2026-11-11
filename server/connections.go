@@ -344,6 +344,13 @@ type shellExchange struct {
 	Truncated bool   `json:"truncated"`
 	ErrorText string `json:"-"`
 	ErrorCode string `json:"-"`
+	// Protocol reports that the remote answered with a well-formed protocol
+	// body. A reachable shell that refuses an action still speaks the protocol;
+	// only a transport failure or an unparseable body means "unreachable".
+	Protocol bool `json:"-"`
+	// AuthFailed reports an explicit credential rejection: HTTP 401/403 or the
+	// protocol's `unauthorized` error code.
+	AuthFailed bool `json:"-"`
 }
 
 type shellError struct {
@@ -433,6 +440,7 @@ func (c *shellClient) exchange(ctx context.Context, request shellRequest) (shell
 		result.ErrorCode = "bad_response"
 		return result, nil
 	}
+	result.Protocol = true
 	result.OK = decoded.OK
 	result.Action = decoded.Action
 	result.Output = decoded.Output
@@ -476,6 +484,10 @@ func (c *shellClient) exchange(ctx context.Context, request shellRequest) (shell
 		if result.ErrorCode == "" || result.ErrorCode == "remote_error" {
 			result.ErrorCode = "unauthorized"
 		}
+		result.AuthFailed = true
+	}
+	if result.ErrorCode == "unauthorized" {
+		result.AuthFailed = true
 	}
 	return result, nil
 }
@@ -520,16 +532,22 @@ func (s *Server) probeConnection(ctx context.Context, a *db.ConnectionAdapter) (
 		return "unreachable", "stored credential could not be opened"
 	}
 	result, err := client.exchange(ctx, shellRequest{V: 1, ID: connectionNonce(), Action: "ping", Nonce: connectionNonce(), TS: time.Now().Unix()})
+	// Transport failure or a deadline: nothing answered, so unreachable.
 	if err != nil {
 		return "unreachable", connectionErrorText(err)
 	}
-	if result.ErrorCode == "unauthorized" {
+	if result.AuthFailed {
 		return "auth_failed", result.ErrorText
 	}
-	if !result.OK {
+	// No protocol body means the endpoint is not a shell speaking this protocol;
+	// that is a reachability problem, not a remote refusal.
+	if !result.Protocol {
 		return "unreachable", result.ErrorText
 	}
-	return "reachable", ""
+	// The shell answered the protocol. A well-formed `ok:false` is a remote
+	// refusal (disabled, bad args, ...) — the host is up, so report reachable and
+	// keep the remote error for the operator.
+	return "reachable", result.ErrorText
 }
 
 func connectionNonce() string {
