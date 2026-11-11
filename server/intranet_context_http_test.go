@@ -632,3 +632,39 @@ func TestInventoryNodeWritesRejectCredentialOnlyFields(t *testing.T) {
 		t.Fatalf("client-supplied reason status=%d", code)
 	}
 }
+
+// TestIntranetContextReportsIntegrationUnreachable covers the last contract
+// reason: when the platform cannot read its own intranet integration, the answer
+// is an explicit unavailability state the panel can display — not a 500 and not a
+// misleading no_session. A closed pool is the honest way to produce that failure.
+func TestIntranetContextReportsIntegrationUnreachable(t *testing.T) {
+	m := newParityTestManager(t)
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	s := New(ctx, m, t.TempDir(), t.TempDir(), t.TempDir())
+	token, err := signJWT(s.jwtKey)
+	if err != nil {
+		t.Fatal(err)
+	}
+	h := &intranetHarness{t: t, handler: s.Handler(), token: token, prefix: fmt.Sprintf("%s-%d", t.Name(), time.Now().UnixNano())}
+	taskID := h.task("unreachable integration")
+	// The task handle is cached at creation, so /api/tasks/{id}/intranet-context
+	// still resolves the task while the database underneath is gone.
+	if err := m.pg.Close(); err != nil {
+		t.Fatalf("close pool: %v", err)
+	}
+	defer func() { _ = m.Close() }()
+
+	got := h.intranet(taskID)
+	if got.Available || got.Reason != "integration_unreachable" || got.Variant != "worker" {
+		t.Fatalf("unreachable context=%+v", got)
+	}
+	if len(got.Sessions) != 0 || len(got.Credentials) != 0 {
+		t.Fatalf("unreachable context leaked entries: %+v", got)
+	}
+
+	// The worker seam takes the same view: no context, so no block and no tools.
+	if ictx, ok := s.taskIntranetResolver(ctx, taskID); ok || ictx.Available || ictx.Reason != "integration_unreachable" {
+		t.Fatalf("resolver on dead pool=%+v ok=%v", ictx, ok)
+	}
+}

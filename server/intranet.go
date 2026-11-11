@@ -2,6 +2,7 @@ package server
 
 import (
 	"context"
+	"database/sql"
 	"errors"
 	"net/http"
 	"strconv"
@@ -44,8 +45,11 @@ func (s *Server) taskIntranetContext(w http.ResponseWriter, r *http.Request) {
 		writeErr(w, 404, "task not found")
 		return
 	}
-	ctx, err := s.m.pg.TaskIntranetContext(r.Context(), taskID)
-	if errors.Is(err, db.ErrInventoryReference) {
+	// Storage failures resolve to available=false + integration_unreachable
+	// rather than an HTTP 500: "the platform could not read its own integration"
+	// is a state the panel is expected to display, not an error page.
+	ictx, err := s.m.pg.TaskIntranetContext(r.Context(), taskID)
+	if errors.Is(err, sql.ErrNoRows) {
 		writeErr(w, 404, "task not found")
 		return
 	}
@@ -53,5 +57,5 @@ func (s *Server) taskIntranetContext(w http.ResponseWriter, r *http.Request) {
 		writeErr(w, 500, "intranet context unavailable")
 		return
 	}
-	writeJSON(w, 200, ctx)
+	writeJSON(w, 200, ictx)
 }

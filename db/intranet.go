@@ -68,6 +68,15 @@ func IntranetUnavailable(reason string) IntranetContext {
 	return IntranetContext{Variant: IntranetVariantPlain, Reason: reason, Sessions: []IntranetSession{}, Credentials: []IntranetCredential{}}
 }
 
+// intranetStorageFailure is the storage-error path: the intranet integration
+// could not be read, so the answer is "unavailable because the integration is
+// unreachable" rather than a transport error. That reason is part of the
+// contract's public vocabulary, and a caller that cannot distinguish it from
+// no_session would misdiagnose its own scope instead of the platform.
+func intranetStorageFailure() (IntranetContext, error) {
+	return IntranetUnavailable(IntranetReasonIntegrationUnreachable), nil
+}
+
 // TaskIntranetContext resolves the intranet context for one task.
 //
 // Availability requires BOTH a usable session and a usable credential: a worker
@@ -78,14 +87,14 @@ func IntranetUnavailable(reason string) IntranetContext {
 func (d *DB) TaskIntranetContext(ctx context.Context, taskID int64) (IntranetContext, error) {
 	var exists bool
 	if err := d.QueryRowContext(ctx, `SELECT EXISTS(SELECT 1 FROM tasks WHERE id=$1)`, taskID).Scan(&exists); err != nil {
-		return IntranetUnavailable(IntranetReasonIntegrationUnreachable), err
+		return intranetStorageFailure()
 	}
 	if !exists {
 		return IntranetContext{}, sql.ErrNoRows
 	}
 	rows, err := d.QueryContext(ctx, `SELECT `+inventoryColumns+` FROM session_inventory WHERE task_id=$1 ORDER BY id`, taskID)
 	if err != nil {
-		return IntranetUnavailable(IntranetReasonIntegrationUnreachable), err
+		return intranetStorageFailure()
 	}
 	usable := []IntranetSession{}
 	stale := false
@@ -93,7 +102,7 @@ func (d *DB) TaskIntranetContext(ctx context.Context, taskID int64) (IntranetCon
 		s, scanErr := scanInventory(rows)
 		if scanErr != nil {
 			rows.Close()
-			return IntranetUnavailable(IntranetReasonIntegrationUnreachable), scanErr
+			return intranetStorageFailure()
 		}
 		switch s.EffectiveState {
 		case "connected":
@@ -106,7 +115,7 @@ func (d *DB) TaskIntranetContext(ctx context.Context, taskID int64) (IntranetCon
 	}
 	if err = rows.Err(); err != nil {
 		rows.Close()
-		return IntranetUnavailable(IntranetReasonIntegrationUnreachable), err
+		return intranetStorageFailure()
 	}
 	rows.Close()
 	if len(usable) == 0 {
@@ -120,7 +129,7 @@ func (d *DB) TaskIntranetContext(ctx context.Context, taskID int64) (IntranetCon
 	rows, err = d.QueryContext(ctx, `SELECT id,label,scope,state,expires_at FROM session_inventory_nodes
  WHERE task_id=$1 AND kind='credential_ref' ORDER BY id`, taskID)
 	if err != nil {
-		return IntranetUnavailable(IntranetReasonIntegrationUnreachable), err
+		return intranetStorageFailure()
 	}
 	credentials := []IntranetCredential{}
 	expired := false
@@ -130,7 +139,7 @@ func (d *DB) TaskIntranetContext(ctx context.Context, taskID int64) (IntranetCon
 		var expiresAt *time.Time
 		if err = rows.Scan(&id, &label, &scope, &state, &expiresAt); err != nil {
 			rows.Close()
-			return IntranetUnavailable(IntranetReasonIntegrationUnreachable), err
+			return intranetStorageFailure()
 		}
 		// An inactive (not merely expired) credential is also unusable; only the
 		// expiry gets its own reason, because only the expiry is self-explanatory.
@@ -144,7 +153,7 @@ func (d *DB) TaskIntranetContext(ctx context.Context, taskID int64) (IntranetCon
 	}
 	if err = rows.Err(); err != nil {
 		rows.Close()
-		return IntranetUnavailable(IntranetReasonIntegrationUnreachable), err
+		return intranetStorageFailure()
 	}
 	rows.Close()
 	switch {
