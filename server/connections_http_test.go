@@ -512,6 +512,64 @@ func TestConnectionSyncUpsertsOneInventorySessionWithAssociation(t *testing.T) {
 	}
 }
 
+// TestConnectionSyncRecordsOfflineStateWithReason covers the online/offline
+// transition: a failed check must show as disconnected with a concrete reason,
+// and the same inventory row must come back online once the shell answers again.
+func TestConnectionSyncRecordsOfflineStateWithReason(t *testing.T) {
+	e := newConnectionTestEnv(t)
+	const secret = "fixture-key-material-offline-0123456789"
+	stub := newShellStub(t, secret)
+	name := fmt.Sprintf("offline-%d", time.Now().UnixNano())
+	adapter := e.createAdapter(t, map[string]any{"name": name, "kind": "http_phpcmd", "base_url": stub.url(), "secret": secret, "secret_ref": "offline-key", "timeout_seconds": 2, "heartbeat_ttl_seconds": 60})
+	adapterID := int64(adapter["id"].(float64))
+	code, online := e.call(t, "POST", fmt.Sprintf("/api/connections/adapters/%d/sync", adapterID), nil, true)
+	if code != 200 || online["session"].(map[string]any)["effective_state"] != "connected" {
+		t.Fatalf("online sync=%d %v", code, online)
+	}
+	sessionID := int64(online["session"].(map[string]any)["id"].(float64))
+
+	stub.deny.Store(true)
+	code, offline := e.call(t, "POST", fmt.Sprintf("/api/connections/adapters/%d/sync", adapterID), nil, true)
+	if code != 200 {
+		t.Fatalf("offline sync=%d %v", code, offline)
+	}
+	if offline["state"] != "unreachable" {
+		t.Fatalf("offline adapter state=%v", offline)
+	}
+	session := offline["session"].(map[string]any)
+	if int64(session["id"].(float64)) != sessionID {
+		t.Fatalf("offline sync created a second session: %v", session)
+	}
+	if session["effective_state"] != "disconnected" {
+		t.Fatalf("offline session state=%v", session)
+	}
+	if reason, _ := session["disconnect_reason"].(string); !strings.Contains(reason, "unreachable") {
+		t.Fatalf("offline reason=%q", reason)
+	}
+	// The adapter state is persisted, and executing against the offline session
+	// is refused rather than attempted.
+	code, detail := e.call(t, "GET", fmt.Sprintf("/api/connections/adapters/%d", adapterID), nil, true)
+	if code != 200 || detail["state"] != "unreachable" || detail["last_error"] == "" {
+		t.Fatalf("persisted adapter state=%d %v", code, detail)
+	}
+	code, refused := e.call(t, "POST", fmt.Sprintf("/api/connections/sessions/%d/operations", sessionID), map[string]any{"action": "exec", "cmd": "id", "request_id": fmt.Sprintf("offline-%d", time.Now().UnixNano())}, true)
+	if code != 409 {
+		t.Fatalf("offline session executed=%d %v", code, refused)
+	}
+
+	stub.deny.Store(false)
+	code, recovered := e.call(t, "POST", fmt.Sprintf("/api/connections/adapters/%d/sync", adapterID), nil, true)
+	if code != 200 || recovered["session"].(map[string]any)["effective_state"] != "connected" {
+		t.Fatalf("recovered sync=%d %v", code, recovered)
+	}
+	if int64(recovered["session"].(map[string]any)["id"].(float64)) != sessionID {
+		t.Fatalf("recovery created a second session: %v", recovered)
+	}
+	if recovered["session"].(map[string]any)["disconnect_reason"] != "" {
+		t.Fatalf("recovered session kept a disconnect reason: %v", recovered)
+	}
+}
+
 func TestConnectionOperationsRecordSuccessFailureTimeoutAndUnsupported(t *testing.T) {
 	e := newConnectionTestEnv(t)
 	const secret = "fixture-key-material-0004-0123456789"
