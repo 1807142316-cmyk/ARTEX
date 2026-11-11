@@ -127,6 +127,7 @@ type Server struct {
 	templateTaskRuns map[string]map[int64]context.CancelFunc
 	proxyPool        *proxyPoolService
 	egress           *egressSandbox
+	connections      *connectionService
 }
 
 // provEntry is a cached provider + its config for one LLM profile id.
@@ -165,6 +166,7 @@ func New(ctx context.Context, m *Manager, skillDir string, dataDir string, keyDi
 	s.initProxyPool()
 	s.egress = s.proxyPool.egress
 	agent.BashSandbox = s.sandboxBash
+	s.initConnections()
 	// 熔断阈值/冷却是失败路径上的热参数，启动时把全局重试策略推给 Registry 一次；
 	// 之后每次保存策略再推一次（saveLLMRetryPolicy）。
 	s.applyRetryPolicy()
@@ -757,8 +759,10 @@ func (s *Server) Handler() http.Handler {
 	mux.HandleFunc("POST /api/llm/test", s.testLLM)
 
 	s.registerSessionInventory(mux)
+	s.registerConnections(mux)
 	s.registerSkillRuns(mux)
 	s.registerSessionTopology(mux)
+	s.registerIntranetContext(mux) // #10: task-scoped intranet context for the sessions/topology UI
 
 	// asset system
 	mux.HandleFunc("GET /api/assets", s.listAssets)

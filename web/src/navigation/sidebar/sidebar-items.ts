@@ -80,6 +80,7 @@ export const sidebarItems: NavGroup[] = [
       { id: "tasks", title: "任务", url: "/function/tasks", icon: Target },
       { id: "findings", title: "发现", url: "/function/findings", icon: Bug },
       { id: "assets", title: "资产", url: "/function/assets", icon: Network },
+      { id: "c2-webshell", title: "C2 / WebShell", url: "/operations/c2", icon: Terminal },
       { id: "session-inventory", title: "会话与拓扑观察", url: "/operations/sessions", icon: Network },
     ],
   },

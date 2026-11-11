@@ -11,16 +11,18 @@ import (
 )
 
 type InventoryNode struct {
-	ID          int64     `json:"id"`
-	Ref         string    `json:"ref"`
-	Kind        string    `json:"kind"`
-	ExternalRef string    `json:"external_ref"`
-	Label       string    `json:"label"`
-	Address     string    `json:"address"`
-	State       string    `json:"state"`
-	TaskID      *int64    `json:"task_id,omitempty"`
-	AssetID     *int64    `json:"asset_id,omitempty"`
-	UpdatedAt   time.Time `json:"updated_at"`
+	ID          int64      `json:"id"`
+	Ref         string     `json:"ref"`
+	Kind        string     `json:"kind"`
+	ExternalRef string     `json:"external_ref"`
+	Label       string     `json:"label"`
+	Address     string     `json:"address"`
+	State       string     `json:"state"`
+	TaskID      *int64     `json:"task_id,omitempty"`
+	AssetID     *int64     `json:"asset_id,omitempty"`
+	Scope       string     `json:"scope,omitempty"`
+	ExpiresAt   *time.Time `json:"expires_at,omitempty"`
+	UpdatedAt   time.Time  `json:"updated_at"`
 }
 
 func (d *DB) SaveInventoryNode(ctx context.Context, n InventoryNode) (InventoryNode, bool, error) {
@@ -45,9 +47,9 @@ func (d *DB) SaveInventoryNode(ctx context.Context, n InventoryNode) (InventoryN
 	if !created && n.Kind != previousKind {
 		return n, false, ErrInventoryConflict
 	}
-	err = tx.QueryRowContext(ctx, `INSERT INTO session_inventory_nodes(kind,external_ref,label,address,state,task_id,asset_id) VALUES($1,$2,$3,$4,$5,$6,$7)
- ON CONFLICT(external_ref) DO UPDATE SET kind=EXCLUDED.kind,label=EXCLUDED.label,address=EXCLUDED.address,state=EXCLUDED.state,task_id=EXCLUDED.task_id,asset_id=EXCLUDED.asset_id,updated_at=now()
- RETURNING id,updated_at`, n.Kind, n.ExternalRef, n.Label, n.Address, n.State, n.TaskID, n.AssetID).Scan(&n.ID, &n.UpdatedAt)
+	err = tx.QueryRowContext(ctx, `INSERT INTO session_inventory_nodes(kind,external_ref,label,address,state,task_id,asset_id,expires_at,scope) VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9)
+ ON CONFLICT(external_ref) DO UPDATE SET kind=EXCLUDED.kind,label=EXCLUDED.label,address=EXCLUDED.address,state=EXCLUDED.state,task_id=EXCLUDED.task_id,asset_id=EXCLUDED.asset_id,expires_at=EXCLUDED.expires_at,scope=EXCLUDED.scope,updated_at=now()
+ RETURNING id,updated_at`, n.Kind, n.ExternalRef, n.Label, n.Address, n.State, n.TaskID, n.AssetID, n.ExpiresAt, n.Scope).Scan(&n.ID, &n.UpdatedAt)
 	if err != nil {
 		return n, false, err
 	}
@@ -59,14 +61,18 @@ func (d *DB) SaveInventoryNode(ctx context.Context, n InventoryNode) (InventoryN
 }
 
 type InventoryEdge struct {
-	ID             int64     `json:"id"`
-	SourceRef      string    `json:"source_ref"`
-	TargetRef      string    `json:"target_ref"`
-	Relation       string    `json:"relation"`
-	State          string    `json:"state"`
-	EffectiveState string    `json:"effective_state"`
-	Note           string    `json:"note"`
-	UpdatedAt      time.Time `json:"updated_at"`
+	ID             int64  `json:"id"`
+	SourceRef      string `json:"source_ref"`
+	TargetRef      string `json:"target_ref"`
+	Relation       string `json:"relation"`
+	State          string `json:"state"`
+	EffectiveState string `json:"effective_state"`
+	// Reason explains a derived inactive state ("session_stale",
+	// "credential_expired", ...). Empty when the edge is active or when an
+	// operator deactivated it explicitly.
+	Reason    string    `json:"reason"`
+	Note      string    `json:"note"`
+	UpdatedAt time.Time `json:"updated_at"`
 }
 
 func inventoryEndpointKind(ctx context.Context, tx *sql.Tx, ref string) (string, *int64, error) {
@@ -132,7 +138,7 @@ func (d *DB) SaveInventoryEdge(ctx context.Context, e InventoryEdge) (InventoryE
 }
 func (d *DB) InventoryNodeDetail(ctx context.Context, id int64) (InventoryNode, []map[string]any, error) {
 	var n InventoryNode
-	err := d.QueryRowContext(ctx, `SELECT id,kind,external_ref,label,address,state,task_id,asset_id,updated_at FROM session_inventory_nodes WHERE id=$1`, id).Scan(&n.ID, &n.Kind, &n.ExternalRef, &n.Label, &n.Address, &n.State, &n.TaskID, &n.AssetID, &n.UpdatedAt)
+	err := d.QueryRowContext(ctx, `SELECT id,kind,external_ref,label,address,state,task_id,asset_id,expires_at,scope,updated_at FROM session_inventory_nodes WHERE id=$1`, id).Scan(&n.ID, &n.Kind, &n.ExternalRef, &n.Label, &n.Address, &n.State, &n.TaskID, &n.AssetID, &n.ExpiresAt, &n.Scope, &n.UpdatedAt)
 	if err != nil {
 		return n, nil, err
 	}
@@ -186,25 +192,180 @@ func (d *DB) InventoryEdgeAudit(ctx context.Context, id int64) ([]map[string]any
 }
 
 type InventoryTopologyNode struct {
-	Ref            string  `json:"ref"`
-	ID             int64   `json:"id"`
-	Kind           string  `json:"kind"`
-	ExternalRef    *string `json:"external_ref,omitempty"`
-	Label          string  `json:"label"`
-	Address        *string `json:"address,omitempty"`
-	State          string  `json:"state"`
-	EffectiveState string  `json:"effective_state"`
-	TaskID         *int64  `json:"task_id"`
-	AssetID        *int64  `json:"asset_id"`
+	Ref            string     `json:"ref"`
+	ID             int64      `json:"id"`
+	Kind           string     `json:"kind"`
+	ExternalRef    *string    `json:"external_ref,omitempty"`
+	Label          string     `json:"label"`
+	Address        *string    `json:"address,omitempty"`
+	State          string     `json:"state"`
+	EffectiveState string     `json:"effective_state"`
+	ExpiresAt      *time.Time `json:"expires_at,omitempty"`
+	TaskID         *int64     `json:"task_id"`
+	AssetID        *int64     `json:"asset_id"`
+}
+
+// InventoryTopologySummary counts the task-scoped graph by node kind plus the
+// active/inactive edge split. Counts are computed before the response is
+// truncated so a capped graph still reports the true shape of the task.
+type InventoryTopologySummary struct {
+	Hosts       int `json:"hosts"`
+	Subnets     int `json:"subnets"`
+	Sessions    int `json:"sessions"`
+	Tunnels     int `json:"tunnels"`
+	Credentials int `json:"credentials"`
+	ActiveEdges int `json:"active_edges"`
+	Inactive    int `json:"inactive_edges"`
+}
+
+// InventoryTopologyEmpty marks which collections hold nothing at all, so the UI
+// can tell "this task has no hosts" apart from "the filter matched nothing".
+// true means the collection is empty.
+type InventoryTopologyEmpty struct {
+	Nodes       bool `json:"nodes"`
+	Edges       bool `json:"edges"`
+	Sessions    bool `json:"sessions"`
+	Tunnels     bool `json:"tunnels"`
+	Credentials bool `json:"credentials"`
 }
 
 type InventoryTopology struct {
-	Nodes     []InventoryTopologyNode `json:"nodes"`
-	Edges     []InventoryEdge         `json:"edges"`
-	Truncated bool                    `json:"truncated"`
-	Mode      string                  `json:"mode"`
+	Nodes     []InventoryTopologyNode  `json:"nodes"`
+	Edges     []InventoryEdge          `json:"edges"`
+	Truncated bool                     `json:"truncated"`
+	Mode      string                   `json:"mode"`
+	Summary   InventoryTopologySummary `json:"summary"`
+	Empty     InventoryTopologyEmpty   `json:"empty"`
 }
 
+// inventoryCredentialExpired reports whether a credential_ref node has passed
+// its explicit expiry. Expiry is evaluated at read time so a writer that forgets
+// to flip the stored state cannot leave a dead credential looking usable.
+func inventoryCredentialExpired(kind, state string, expiresAt *time.Time) bool {
+	if kind != "credential_ref" || expiresAt == nil {
+		return false
+	}
+	return !expiresAt.After(time.Now())
+}
+
+// inventoryEffectiveNodeState folds stored state and credential expiry into the
+// state the API reports and the intranet resolver consumes.
+func inventoryEffectiveNodeState(kind, state string, expiresAt *time.Time) string {
+	if inventoryCredentialExpired(kind, state, expiresAt) {
+		return "expired"
+	}
+	return state
+}
+
+// topoEndpoint is the resolved view of one side of an edge, used to explain why
+// the edge is inactive. exists=false means the ref was not part of this graph.
+type topoEndpoint struct {
+	kind      string
+	effective string
+	task      *int64
+	exists    bool
+}
+
+// inventoryEdgeReason returns the machine-readable reason an edge is inactive,
+// or "" when the edge is active or was explicitly deactivated by an operator.
+// Precedence is fixed, so the same graph always yields the same reason:
+//
+//  1. an operator's explicit inactive state is not a derived condition;
+//  2. a dangling endpoint (the node or session row is gone) is node_invalid;
+//  3. an ownership violation — task_mismatch — outranks endpoint state, because
+//     no amount of health makes a cross-task relationship legal;
+//  4. otherwise the first unhealthy endpoint in graph order (source, then target).
+func inventoryEdgeReason(e InventoryEdge, source, target topoEndpoint) string {
+	if e.State == "inactive" {
+		return ""
+	}
+	if !source.exists || !target.exists {
+		return "node_invalid"
+	}
+	if source.task != nil && target.task != nil && *source.task != *target.task {
+		return "task_mismatch"
+	}
+	for _, endpoint := range []topoEndpoint{source, target} {
+		if reason := inventoryEndpointReason(endpoint); reason != "" {
+			return reason
+		}
+	}
+	return ""
+}
+
+// inventoryGraphEndpoint resolves one edge side: from the filtered graph when
+// present, otherwise from storage so an endpoint that drifted out of the filter
+// (reassigned task, renamed owner) still explains the edge. Unknown refs resolve
+// to exists=false and the edge is dropped by the caller.
+func inventoryGraphEndpoint(ctx context.Context, tx *sql.Tx, graph map[string]topoEndpoint, ref string) (topoEndpoint, error) {
+	if endpoint, ok := graph[ref]; ok {
+		return endpoint, nil
+	}
+	prefix, raw, ok := strings.Cut(ref, ":")
+	id, convErr := strconv.ParseInt(raw, 10, 64)
+	if !ok || convErr != nil || id < 1 {
+		return topoEndpoint{}, nil
+	}
+	switch prefix {
+	case "session":
+		s, err := scanInventory(tx.QueryRowContext(ctx, `SELECT `+inventoryColumns+` FROM session_inventory WHERE id=$1`, id))
+		if errors.Is(err, sql.ErrNoRows) {
+			return topoEndpoint{}, nil
+		}
+		if err != nil {
+			return topoEndpoint{}, err
+		}
+		return topoEndpoint{kind: "session", effective: s.EffectiveState, task: s.TaskID, exists: true}, nil
+	case "node":
+		var kind, state string
+		var task *int64
+		var expiresAt *time.Time
+		err := tx.QueryRowContext(ctx, `SELECT kind,state,task_id,expires_at FROM session_inventory_nodes WHERE id=$1`, id).Scan(&kind, &state, &task, &expiresAt)
+		if errors.Is(err, sql.ErrNoRows) {
+			return topoEndpoint{}, nil
+		}
+		if err != nil {
+			return topoEndpoint{}, err
+		}
+		return topoEndpoint{kind: kind, effective: inventoryEffectiveNodeState(kind, state, expiresAt), task: task, exists: true}, nil
+	}
+	return topoEndpoint{}, nil
+}
+
+func inventoryEndpointReason(endpoint topoEndpoint) string {
+	switch endpoint.kind {
+	case "session":
+		switch endpoint.effective {
+		case "connected":
+			return ""
+		case "stale":
+			return "session_stale"
+		default: // disconnected or unknown: the session is not carrying traffic
+			return "session_disconnected"
+		}
+	case "credential_ref":
+		if endpoint.effective == "expired" {
+			return "credential_expired"
+		}
+		if endpoint.effective != "active" {
+			return "node_invalid"
+		}
+		return ""
+	case "tunnel":
+		if endpoint.effective != "active" {
+			return "tunnel_inactive"
+		}
+		return ""
+	default: // host / subnet
+		if endpoint.effective != "active" {
+			return "node_invalid"
+		}
+		return ""
+	}
+}
+
+// InventoryTopology returns the task-scoped node/edge graph with derived edge
+// reasons, task-filtered summary counts and explicit empty-state flags.
 func (d *DB) InventoryTopology(ctx context.Context, q string, task *int64) (InventoryTopology, error) {
 	graph := InventoryTopology{Nodes: []InventoryTopologyNode{}, Edges: []InventoryEdge{}, Mode: "observer"}
 	tx, err := d.BeginTx(ctx, &sql.TxOptions{Isolation: sql.LevelRepeatableRead, ReadOnly: true})
@@ -212,45 +373,54 @@ func (d *DB) InventoryTopology(ctx context.Context, q string, task *int64) (Inve
 		return graph, err
 	}
 	defer tx.Rollback()
-	rows, err := tx.QueryContext(ctx, `SELECT id,kind,external_ref,label,address,state,task_id,asset_id
- FROM session_inventory_nodes WHERE ($1='' OR external_ref ILIKE $2 OR label ILIKE $2) AND ($3::bigint IS NULL OR task_id=$3) ORDER BY id LIMIT 501`, q, "%"+q+"%", task)
+	pattern := "%" + q + "%"
+	rows, err := tx.QueryContext(ctx, `SELECT id,kind,external_ref,label,address,state,task_id,asset_id,expires_at
+ FROM session_inventory_nodes WHERE ($1='' OR external_ref ILIKE $2 OR label ILIKE $2) AND ($3::bigint IS NULL OR task_id=$3) ORDER BY id LIMIT 501`, q, pattern, task)
 	if err != nil {
 		return graph, err
 	}
-	active := map[string]bool{}
-	owners := map[string]*int64{}
+	endpoints := map[string]topoEndpoint{}
+	var summary InventoryTopologySummary
 	for rows.Next() {
 		var n InventoryTopologyNode
-		if err = rows.Scan(&n.ID, &n.Kind, &n.ExternalRef, &n.Label, &n.Address, &n.State, &n.TaskID, &n.AssetID); err != nil {
+		if err = rows.Scan(&n.ID, &n.Kind, &n.ExternalRef, &n.Label, &n.Address, &n.State, &n.TaskID, &n.AssetID, &n.ExpiresAt); err != nil {
 			rows.Close()
 			return graph, err
 		}
 		n.Ref = "node:" + strconv.FormatInt(n.ID, 10)
-		n.EffectiveState = n.State
+		n.EffectiveState = inventoryEffectiveNodeState(n.Kind, n.State, n.ExpiresAt)
+		switch n.Kind {
+		case "host":
+			summary.Hosts++
+		case "subnet":
+			summary.Subnets++
+		case "tunnel":
+			summary.Tunnels++
+		case "credential_ref":
+			summary.Credentials++
+		}
 		graph.Nodes = append(graph.Nodes, n)
-		active[n.Ref] = n.State == "active"
-		owners[n.Ref] = n.TaskID
+		endpoints[n.Ref] = topoEndpoint{kind: n.Kind, effective: n.EffectiveState, task: n.TaskID, exists: true}
 	}
 	if err = rows.Err(); err != nil {
 		rows.Close()
 		return graph, err
 	}
 	rows.Close()
-	rows, err = tx.QueryContext(ctx, `SELECT `+inventoryColumns+` FROM session_inventory WHERE ($1='' OR source ILIKE $2 OR source_id ILIKE $2 OR host ILIKE $2) AND ($3::bigint IS NULL OR task_id=$3) ORDER BY id LIMIT 501`, q, "%"+q+"%", task)
+	rows, err = tx.QueryContext(ctx, `SELECT `+inventoryColumns+` FROM session_inventory WHERE ($1='' OR source ILIKE $2 OR source_id ILIKE $2 OR host ILIKE $2) AND ($3::bigint IS NULL OR task_id=$3) ORDER BY id LIMIT 501`, q, pattern, task)
 	if err != nil {
 		return graph, err
 	}
 	for rows.Next() {
-		s, err := scanInventory(rows)
-		if err != nil {
+		s, scanErr := scanInventory(rows)
+		if scanErr != nil {
 			rows.Close()
-			return graph, err
+			return graph, scanErr
 		}
 		ref := "session:" + strconv.FormatInt(s.ID, 10)
-		n := InventoryTopologyNode{Ref: ref, ID: s.ID, Kind: "session", Label: s.Source + " / " + s.SourceID, State: s.State, EffectiveState: s.EffectiveState, TaskID: s.TaskID, AssetID: s.AssetID}
-		graph.Nodes = append(graph.Nodes, n)
-		active[ref] = s.EffectiveState == "connected"
-		owners[ref] = s.TaskID
+		graph.Nodes = append(graph.Nodes, InventoryTopologyNode{Ref: ref, ID: s.ID, Kind: "session", Label: s.Source + " / " + s.SourceID, State: s.State, EffectiveState: s.EffectiveState, TaskID: s.TaskID, AssetID: s.AssetID})
+		summary.Sessions++
+		endpoints[ref] = topoEndpoint{kind: "session", effective: s.EffectiveState, task: s.TaskID, exists: true}
 	}
 	if err = rows.Err(); err != nil {
 		rows.Close()
@@ -260,29 +430,50 @@ func (d *DB) InventoryTopology(ctx context.Context, q string, task *int64) (Inve
 	if len(graph.Nodes) > 500 {
 		graph.Truncated = true
 		graph.Nodes = graph.Nodes[:500]
-		active = map[string]bool{}
-		for _, n := range graph.Nodes {
-			active[n.Ref] = n.EffectiveState == "active" || n.EffectiveState == "connected"
-		}
 	}
-	refs := make([]string, 0, len(active))
-	for ref := range active {
+	refs := make([]string, 0, len(endpoints))
+	for ref := range endpoints {
 		refs = append(refs, ref)
 	}
-	rows, err = tx.QueryContext(ctx, `SELECT id,source_ref,target_ref,relation,state,note,updated_at FROM session_inventory_edges WHERE source_ref=ANY($1::text[]) AND target_ref=ANY($1::text[]) ORDER BY id LIMIT 1001`, refs)
+	// Edges attach when EITHER endpoint is in the filtered graph. The other side
+	// is resolved separately: without that, a node reassigned to another task
+	// would silently drop its relationship instead of surfacing task_mismatch.
+	rows, err = tx.QueryContext(ctx, `SELECT id,source_ref,target_ref,relation,state,note,updated_at FROM session_inventory_edges WHERE source_ref=ANY($1::text[]) OR target_ref=ANY($1::text[]) ORDER BY id LIMIT 1001`, refs)
 	if err != nil {
 		return graph, err
 	}
-	defer rows.Close()
+	// Materialize before resolving off-graph endpoints: the transaction holds a
+	// single connection, so a lookup cannot run while the edge rows are still open.
+	stored := make([]InventoryEdge, 0, 32)
 	for rows.Next() {
 		var e InventoryEdge
 		if err = rows.Scan(&e.ID, &e.SourceRef, &e.TargetRef, &e.Relation, &e.State, &e.Note, &e.UpdatedAt); err != nil {
+			rows.Close()
 			return graph, err
 		}
-		e.EffectiveState = e.State
-		sourceOwner, targetOwner := owners[e.SourceRef], owners[e.TargetRef]
-		if !active[e.SourceRef] || !active[e.TargetRef] || sourceOwner != nil && targetOwner != nil && *sourceOwner != *targetOwner {
+		stored = append(stored, e)
+	}
+	if err = rows.Err(); err != nil {
+		rows.Close()
+		return graph, err
+	}
+	rows.Close()
+	for _, e := range stored {
+		source, sourceErr := inventoryGraphEndpoint(ctx, tx, endpoints, e.SourceRef)
+		if sourceErr != nil {
+			return graph, sourceErr
+		}
+		target, targetErr := inventoryGraphEndpoint(ctx, tx, endpoints, e.TargetRef)
+		if targetErr != nil {
+			return graph, targetErr
+		}
+		e.Reason = inventoryEdgeReason(e, source, target)
+		if e.State == "inactive" || e.Reason != "" {
 			e.EffectiveState = "inactive"
+			summary.Inactive++
+		} else {
+			e.EffectiveState = "active"
+			summary.ActiveEdges++
 		}
 		graph.Edges = append(graph.Edges, e)
 	}
@@ -290,8 +481,13 @@ func (d *DB) InventoryTopology(ctx context.Context, q string, task *int64) (Inve
 		graph.Truncated = true
 		graph.Edges = graph.Edges[:1000]
 	}
-	if err = rows.Err(); err != nil {
-		return graph, err
+	graph.Summary = summary
+	graph.Empty = InventoryTopologyEmpty{
+		Nodes:       len(graph.Nodes) == 0,
+		Edges:       len(graph.Edges) == 0,
+		Sessions:    summary.Sessions == 0,
+		Tunnels:     summary.Tunnels == 0,
+		Credentials: summary.Credentials == 0,
 	}
 	return graph, tx.Commit()
 }

@@ -2,11 +2,19 @@
 
 This module records external session observations. The `c2` and `webshell`
 values classify the reporting source; `protocol_label` is descriptive metadata.
-The implemented adapter is `http-health-observer`: a regular HTTP GET health
-check followed by an authenticated JSON observation submission. It is not an
-`http_phpcmd` execution adapter. No command, shell, tunnel activation, credential
-read, worker context change or remote disconnect is implemented here. Issues
-#9 and #10 remain incomplete against their original execution requirements.
+The implemented observer adapter is `http-health-observer`: a regular HTTP GET
+health check followed by an authenticated JSON observation submission. It stays
+read-only: no command, shell, tunnel activation, credential read, worker context
+change or remote disconnect is implemented through the observation API.
+
+A real execution adapter was added in issue #9 (see **C2/WebShell adapters**
+below): `http_phpcmd` writes its own observations through this same inventory
+(`source=connection:<adapterID>`, `protocol_label=http_phpcmd`) and executes
+`ping`/`info`/`exec` against a configured HTTP/PHP endpoint, and the same
+executor backs the #10 worker seam: `intranet_exec` runs through
+`intranetAdapterExecutor`, which re-reads the session per call, verifies task
+ownership and effective state, and reports exit code, stderr and timeouts as
+tool-visible errors while still recording the operation.
 
 The UI is **作战 → 会话与拓扑观察** (`/operations/sessions`). It includes paginated
 session filters, status/details, the latest 100 audit entries, annotations,
@@ -115,3 +123,92 @@ association, stale/disconnect/reconnect, explicit graph and invalidation,
 cross-task rejection, immutable node kinds, and the actual Python observer
 against an ordinary local health service. Set `ARTEX_TEST_PYTHON` when `python3`
 is not on PATH. These checks do not certify C2/WebShell command protocol support.
+
+## C2/WebShell adapters (issue #9)
+
+**作战 → C2 / WebShell** (`/operations/c2`) manages operator-configured
+`http_phpcmd` endpoints. Tables: `connection_adapters` and
+`connection_operations` (appended to `db/schema.sql`).
+
+Adapter fields: `name`, `kind` (`http_phpcmd` only), `base_url`, sealed
+`sealed_secret`, display-only `secret_ref`, `timeout_seconds` (1–120),
+`heartbeat_ttl_seconds` (1–86400), `enabled`, `state`
+(`unconfigured`/`reachable`/`unreachable`/`auth_failed`), `last_error`,
+`checked_at`, optional `task_id`/`asset_id`.
+
+- `GET/POST /api/connections/adapters`, `GET/PUT/DELETE
+  /api/connections/adapters/{id}`. The credential is write-only and sealed with
+  AES-GCM under the instance key; no response contains `sealed_secret` or the
+  plaintext. Omitting `secret` on update keeps the stored one. `base_url` must be
+  absolute HTTP(S) with no userinfo, query or fragment. Association requires an
+  existing task and an asset that belongs to it.
+- `POST /api/connections/adapters/{id}/check` performs a real `ping`:
+  `reachable`, `auth_failed` (remote 401/403 or protocol `unauthorized`),
+  `unreachable` (transport error/timeout). Disabled adapters are refused with 409
+  and make no request.
+- `POST /api/connections/adapters/{id}/sync` checks, then upserts exactly one
+  inventory observation via `db.ObserveSession` with `kind=webshell`,
+  `protocol_label=http_phpcmd`, `source=connection:<id>`, `source_id=<host>`,
+  task/asset references and the adapter TTL. A failed check records
+  `state=disconnected` with an explicit `disconnect_reason` rather than claiming
+  connectivity.
+- `GET /api/connections/sessions` lists adapter-owned inventory rows with their
+  adapter, capabilities and effective state. Sessions not owned by an adapter are
+  rejected with 409 on the execution endpoints.
+- `GET/POST /api/connections/sessions/{id}/operations`. Request
+  `{"action":"exec","cmd":"id","request_id":"..."}` or
+  `{"action":"exec","argv":["/bin/echo","hi"],"timeout_ms":500}`. Only
+  `ping`/`info`/`exec` are declared; anything else is recorded as `unsupported`
+  with an explicit error and no request is sent. Executing against a
+  `stale`/`disconnected` session or a disabled adapter returns 409.
+- Every operation row keeps `request_id` (unique per session, so a retry replays
+  the stored record instead of sending again), `action`, `args_summary`, `status`
+  (`running`/`succeeded`/`failed`/`timeout`/`unsupported`), `exit_code`, bounded
+  `output` (64 KiB), `error`, `started_at` and `finished_at`.
+
+### Protocol
+
+Self-authored for ARTEX; not a reimplementation of any third-party shell.
+
+```
+POST <base_url>          Content-Type: application/json
+X-Shell-Key: <secret>    (X-Artex-Key also accepted)
+
+{"v":1,"id":"<request id>","action":"ping|info|exec","cmd":"...","nonce":"...","ts":N,
+ "args":{"argv":[...],"cwd":"/tmp","timeout_ms":5000}}
+```
+
+`{"ok":true,"action":"exec","exit_code":0,"timed_out":false,"truncated":false,
+"stdout_b64":"...","stderr_b64":"..."}` or
+`{"ok":false,"error":{"code":"...","message":"..."}}`. Exec is non-interactive.
+
+### Validation
+
+`tests/fixtures/php-webshell/` holds the test-only PHP implementation
+(`hash_equals` over SHA-256, `proc_open` argv execution, bounded output/timeout)
+plus a Dockerfile, `smoke.sh` and a README with the exact commands. It is not
+imported by any production path.
+
+`TestConnection*` exercises authenticated HTTP against real PostgreSQL:
+adapter CRUD and secret redaction, unknown fields, cross-task asset rejection,
+check in all four states without network calls when disabled, single-session
+sync with task/asset association, stale/disconnect/reconnect, exec
+success/failure/timeout, output bounding, unsupported rejection without a network
+call, idempotent `request_id`, and 401 on unauthenticated calls.
+`TestConnectionAdapterRealPHPFixture` runs the same adapter against the real PHP
+container and is enabled by `ARTEX_TEST_PHP_URL` + `ARTEX_TEST_PHP_KEY`.
+
+### Worker execution seam
+
+`server/intranet_executor.go` implements `agent.IntranetExecutor` over the
+adapter. It is wired in `agentsForTask` only when the connection service exists
+(`s.intranetExecutor()` returns nil otherwise, leaving the #10 behaviour of
+"tool present, executor unavailable"). Every call:
+
+- re-reads `session_inventory` and refuses a session whose `task_id` is not the
+  calling task, whose effective state is not `connected`, or that does not exist;
+- records an operation with `request_id=intranet-<taskID>-<unixnano>` so worker
+  executions are distinguishable from operator actions in the same history;
+- returns stdout on success and, on failure, an error carrying the exit code,
+  the tail of stdout, and the adapter's error/stderr (timeouts say `timed out`).
+
