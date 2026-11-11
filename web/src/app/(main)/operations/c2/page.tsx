@@ -185,13 +185,14 @@ export default function C2WebShellPage() {
         request_id: requestId,
         ...(action === "exec" ? { cmd } : {}),
       });
-      await refreshOperations(selected.id);
-      if (result.status === "unsupported") setOperationError("该能力未被适配器声明，未发送任何请求");
-      else if (result.status === "timeout") setOperationError("操作超时，已记录请求与超时状态");
+      if (result.status === "timeout") setOperationError("操作超时，已记录请求与超时状态");
       else if (result.status === "failed") setOperationError(result.error || "操作失败");
     } catch (err) {
       setOperationError(errorText(err));
     } finally {
+      // A rejected capability or a refused session still produces a record, so
+      // refresh regardless of whether the request itself threw.
+      await refreshOperations(selected.id);
       setBusy(false);
     }
   };
