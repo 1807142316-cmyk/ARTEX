@@ -32,14 +32,52 @@ ordinary target error does not automatically mark the proxy unhealthy. Health
 checks run every minute and are available manually. A failed lease must be
 reassigned before the operator resumes the task.
 
-This is HTTP proxy routing, not a network namespace or firewall. Raw TCP/UDP,
-DNS resolver traffic, programs that ignore proxy variables, custom remote MCP
-services, and browser services hosted outside the application process are not
-transparently redirected. The UI explicitly states this scope. Changing pool
+Without the transparent sandbox (below) this is HTTP proxy routing only, not a
+network namespace or firewall. Raw TCP/UDP, DNS resolver traffic, programs that
+ignore proxy variables, custom remote MCP services, and browser services hosted
+outside the application process are not redirected. The UI states this scope. Changing pool
 settings while tools are already running requires pausing and continuing tasks
 to rebuild their process and browser environments. Pooled task Bash environments
 clear inherited `NO_PROXY` and `no_proxy` bypasses. Programs can still explicitly
-override their own proxy configuration. No network isolation claim is made.
+override their own proxy configuration. Without the sandbox no network isolation
+claim is made.
+
+## Transparent task egress sandbox (Linux)
+
+Setting `egress_sandbox_enabled` (default off, only meaningful with the pool on)
+forces task tool traffic through the task lease instead of relying on proxy
+environment variables. It lives in `egress/`, is Linux-only, and is rejected on
+other platforms; the rest of the program is unaffected there.
+
+Per task the server starts a relay child in its own network namespace
+(`CLONE_NEWNET`). Inside that namespace nftables redirects every outbound TCP
+connection to the relay and every DNS query (UDP and TCP port 53) to the relay's
+resolver bridge, while all non-loopback output is dropped — plain UDP, ICMP and
+raw sockets fail closed. The relay asks the server for each connection over a
+0600 Unix socket in the data directory; the server resolves the destination with
+the existing `proxyPool.route` lease/policy code plus `dialTaskProxy` and passes
+the connected fd back with `SCM_RIGHTS`. The task's HTTP gateway address is
+mirrored inside the namespace, so proxy-aware clients keep their unchanged proxy
+URL and still land on the lease-recording gateway. DNS is forwarded over TCP
+through the same route.
+
+Bash runs as `nsenter --net=/proc/<relay>/ns/net -- /bin/sh -c '<command>'`, so
+quoting, cwd, environment, pipes, heredocs, background jobs and exit codes are
+preserved. Pooled sandboxed Bash also clears inherited `NO_PROXY`/`no_proxy`. If
+the sandbox cannot be created, or the relay dies, the command does not run and
+the task's existing policy applies (pause by default; failover or direct only
+when the operator selected it) with a `sandbox_failed` audit event. Failed
+requests are never replayed.
+
+Requirements: Linux with `CAP_SYS_ADMIN` (CLONE_NEWNET) and `CAP_NET_ADMIN`
+(nftables), plus `iproute2`, `nftables` and `util-linux` (nsenter). The
+`Dockerfile.source` image installs those packages; `compose.source.yml` adds the
+capabilities. Without them the sandbox cannot start and sandboxed tasks pause —
+no isolation is claimed for such a deployment.
+
+Still unsupported: processes outside the task process tree (custom remote MCP
+servers, separately hosted browser services, the application's own outbound
+calls), UDP other than DNS, and ICMP. Those keep the non-sandbox behavior above.
 
 Standalone scanning must either supply an associated task gateway or be rejected
 when the pool is enabled. The actual Agent-assembled Playwright MCP/Chromium

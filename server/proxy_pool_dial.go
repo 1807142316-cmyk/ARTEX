@@ -5,9 +5,11 @@ import (
 	"context"
 	"crypto/tls"
 	"fmt"
+	"io"
 	"net"
 	"net/http"
 	"net/url"
+	"syscall"
 	"time"
 
 	"golang.org/x/net/proxy"
@@ -83,4 +85,29 @@ type bufferedProxyConn struct {
 	reader *bufio.Reader
 }
 
+// SyscallConn forwards to the underlying connection so the egress relay can
+// pass this socket over SCM_RIGHTS; a CONNECT reply that arrived together with
+// the first tunneled bytes produces this wrapper.
+func (c *bufferedProxyConn) SyscallConn() (syscall.RawConn, error) {
+	sc, ok := c.Conn.(syscall.Conn)
+	if !ok {
+		return nil, fmt.Errorf("underlying proxy connection %T has no syscall handle", c.Conn)
+	}
+	return sc.SyscallConn()
+}
+
 func (c *bufferedProxyConn) Read(b []byte) (int, error) { return c.reader.Read(b) }
+
+// BufferedBytes drains bytes that were read past the CONNECT response. The
+// egress relay only receives the raw fd, so they have to be replayed separately.
+func (c *bufferedProxyConn) BufferedBytes() []byte {
+	buffered := c.reader.Buffered()
+	if buffered == 0 {
+		return nil
+	}
+	out := make([]byte, buffered)
+	if _, err := io.ReadFull(c.reader, out); err != nil {
+		return nil
+	}
+	return out
+}

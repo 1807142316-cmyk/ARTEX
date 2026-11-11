@@ -40,10 +40,11 @@ type proxyPoolService struct {
 	mu         sync.Mutex
 	gateways   map[int64]*taskProxyGateway
 	recordings map[string]string
+	egress     *egressSandbox
 }
 
 func (s *Server) initProxyPool() {
-	p := &proxyPoolService{s: s, gateways: map[int64]*taskProxyGateway{}, recordings: map[string]string{}}
+	p := &proxyPoolService{s: s, gateways: map[int64]*taskProxyGateway{}, recordings: map[string]string{}, egress: &egressSandbox{s: s}}
 	s.proxyPool = p
 	s.m.invalidateTaskEgress = func(id string) { n, _ := strconv.ParseInt(id, 10, 64); p.invalidate(n) }
 	s.m.taskEnrich = func(id string) agent.EnrichTrigger {

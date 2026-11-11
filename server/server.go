@@ -126,6 +126,7 @@ type Server struct {
 	templateRunsMu   sync.Mutex
 	templateTaskRuns map[string]map[int64]context.CancelFunc
 	proxyPool        *proxyPoolService
+	egress           *egressSandbox
 	connections      *connectionService
 }
 
@@ -163,6 +164,8 @@ func New(ctx context.Context, m *Manager, skillDir string, dataDir string, keyDi
 	s.templateTaskRuns = make(map[string]map[int64]context.CancelFunc)
 	m.invalidateTaskScans = s.cancelTaskTemplateRuns
 	s.initProxyPool()
+	s.egress = s.proxyPool.egress
+	agent.BashSandbox = s.sandboxBash
 	s.initConnections()
 	// 熔断阈值/冷却是失败路径上的热参数，启动时把全局重试策略推给 Registry 一次；
 	// 之后每次保存策略再推一次（saveLLMRetryPolicy）。
@@ -909,6 +912,8 @@ func (s *Server) Handler() http.Handler {
 	mux.HandleFunc("PUT /api/proxies/{proxyID}", s.saveProxyEndpoint)
 	mux.HandleFunc("POST /api/proxies/{proxyID}/check", s.checkProxyEndpoint)
 	mux.HandleFunc("PUT /api/proxies/settings", s.putProxySettings)
+	mux.HandleFunc("GET /api/egress/status", s.getEgressStatus)
+	mux.HandleFunc("PUT /api/egress/settings", s.putEgressSettings)
 	mux.HandleFunc("GET /api/tasks/{id}/egress", s.taskEgress)
 	mux.HandleFunc("POST /api/tasks/{id}/egress", s.taskEgress)
 	mux.HandleFunc("GET /api/scan-templates/engine", s.scanTemplateEngine)

@@ -168,6 +168,11 @@ func (d *DB) PauseTaskEgress(ctx context.Context, id int64, message string) erro
 	}
 	return tx.Commit()
 }
+// RecordEgressEvent appends an audit event for a task's egress lifecycle.
+func (d *DB) RecordEgressEvent(ctx context.Context, id int64, kind, message string) error {
+	_, e := d.ExecContext(ctx, `INSERT INTO task_egress_events(task_id,kind,message) VALUES($1,$2,$3)`, id, kind, message)
+	return e
+}
 func (d *DB) EgressEvents(ctx context.Context, id int64) ([]EgressEvent, error) {
 	rows, e := d.QueryContext(ctx, `SELECT id,kind,message,created_at FROM task_egress_events WHERE task_id=$1 ORDER BY id DESC LIMIT 100`, id)
 	if e != nil {
