@@ -17,6 +17,7 @@ import (
 	"strings"
 	"sync"
 	"time"
+	"unicode/utf8"
 
 	"github.com/Autumn-27/artex/db"
 )
@@ -619,11 +620,21 @@ func (s *Server) syncConnectionAdapter(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, 200, map[string]any{"adapter": adapterView(a), "session": connectionSessionView(session, a), "replayed": replayed, "state": state})
 }
 
+// trimConnectionText clips text to at most max bytes without splitting a
+// multi-byte rune. Remote output and error text are arbitrary UTF-8, and a byte
+// slice would produce invalid sequences that the UI renders as mojibake.
 func trimConnectionText(text string, max int) string {
+	if max <= 0 {
+		return ""
+	}
 	if len(text) <= max {
 		return text
 	}
-	return text[:max]
+	cut := max
+	for cut > 0 && !utf8.RuneStart(text[cut]) {
+		cut--
+	}
+	return text[:cut]
 }
 
 func connectionSessionView(session db.InventorySession, a *db.ConnectionAdapter) map[string]any {

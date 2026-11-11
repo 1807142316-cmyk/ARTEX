@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"strings"
 	"time"
+	"unicode/utf8"
 
 	"github.com/Autumn-27/artex/agent"
 	"github.com/Autumn-27/artex/db"
@@ -97,7 +98,13 @@ func (e intranetAdapterExecutor) Exec(ctx context.Context, taskID, sessionID int
 func connectionOutputTail(output string) string {
 	output = strings.TrimSpace(output)
 	if len(output) > 2000 {
-		output = output[len(output)-2000:]
+		start := len(output) - 2000
+		// Advance to a rune boundary: cutting inside a multi-byte character
+		// yields invalid UTF-8, which the tool result renders as mojibake.
+		for start < len(output) && !utf8.RuneStart(output[start]) {
+			start++
+		}
+		output = output[start:]
 	}
 	return output
 }
