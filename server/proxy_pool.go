@@ -2,10 +2,7 @@ package server
 
 import (
 	"context"
-	"crypto/aes"
-	"crypto/cipher"
 	"crypto/rand"
-	"crypto/sha256"
 	"encoding/base64"
 	"encoding/json"
 	"errors"
@@ -143,41 +140,14 @@ type taskEgressEnricher struct {
 
 func (e taskEgressEnricher) ResolveDomain(id int64, host string) { e.engine.ResolveDomain(id, host) }
 func (e taskEgressEnricher) ProbeSite(id int64, raw string)      { e.engine.ProbeSiteVia(id, raw, e.proxy) }
+
+// seal/open encrypt proxy URLs for the pool. Both delegate to the shared
+// secretBox so the derivation (and its legacy fallback) lives in one place.
 func (p *proxyPoolService) seal(raw string) (string, error) {
-	key := sha256.Sum256(p.s.jwtKey)
-	block, e := aes.NewCipher(key[:])
-	if e != nil {
-		return "", e
-	}
-	a, e := cipher.NewGCM(block)
-	if e != nil {
-		return "", e
-	}
-	nonce := make([]byte, a.NonceSize())
-	if _, e = rand.Read(nonce); e != nil {
-		return "", e
-	}
-	return base64.RawStdEncoding.EncodeToString(a.Seal(nonce, nonce, []byte(raw), nil)), nil
+	return p.s.secrets.seal(raw)
 }
 func (p *proxyPoolService) open(sealed string) (string, error) {
-	data, e := base64.RawStdEncoding.DecodeString(sealed)
-	if e != nil {
-		return "", e
-	}
-	key := sha256.Sum256(p.s.jwtKey)
-	block, e := aes.NewCipher(key[:])
-	if e != nil {
-		return "", e
-	}
-	a, e := cipher.NewGCM(block)
-	if e != nil {
-		return "", e
-	}
-	if len(data) < a.NonceSize() {
-		return "", errors.New("invalid encrypted proxy URL")
-	}
-	plain, e := a.Open(nil, data[:a.NonceSize()], data[a.NonceSize():], nil)
-	return string(plain), e
+	return p.s.secrets.open(sealed)
 }
 func (p *proxyPoolService) gateway(taskID int64) (string, error) {
 	p.mu.Lock()

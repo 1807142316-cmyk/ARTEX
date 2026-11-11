@@ -44,8 +44,9 @@ type Server struct {
 	engine *Engine
 	ctx    context.Context
 
-	skillDir string // root directory for skill subdirectories
-	jwtKey   []byte // HS256 signing key in the private key directory
+	skillDir string     // root directory for skill subdirectories
+	jwtKey   []byte     // HS256 signing key in the private key directory
+	secrets  *secretBox // AES-GCM box for proxy URLs and adapter credentials
 
 	// concMu serializes concurrency-cap decisions (admission + reconcile) so a
 	// scheduler tick and an HTTP settings change / task creation can't both count
@@ -163,6 +164,7 @@ func New(ctx context.Context, m *Manager, skillDir string, dataDir string, keyDi
 	s.initSideQuestions()
 	s.templateTaskRuns = make(map[string]map[int64]context.CancelFunc)
 	m.invalidateTaskScans = s.cancelTaskTemplateRuns
+	s.secrets = newSecretBox(s.jwtKey)
 	s.initProxyPool()
 	s.egress = s.proxyPool.egress
 	agent.BashSandbox = s.sandboxBash

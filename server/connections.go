@@ -3,10 +3,7 @@ package server
 import (
 	"bytes"
 	"context"
-	"crypto/aes"
-	"crypto/cipher"
 	"crypto/rand"
-	"crypto/sha256"
 	"database/sql"
 	"encoding/base64"
 	"encoding/json"
@@ -59,42 +56,15 @@ func (c *connectionService) lock(adapterID int64) func() {
 	return l.Unlock
 }
 
+// seal/open encrypt adapter credentials through the shared secretBox. The
+// derivation is shared with the proxy pool and keeps the legacy fallback, so
+// credentials sealed before the helper existed keep opening.
 func (c *connectionService) seal(raw string) (string, error) {
-	key := sha256.Sum256(c.s.jwtKey)
-	block, err := aes.NewCipher(key[:])
-	if err != nil {
-		return "", err
-	}
-	a, err := cipher.NewGCM(block)
-	if err != nil {
-		return "", err
-	}
-	nonce := make([]byte, a.NonceSize())
-	if _, err = rand.Read(nonce); err != nil {
-		return "", err
-	}
-	return base64.RawStdEncoding.EncodeToString(a.Seal(nonce, nonce, []byte(raw), nil)), nil
+	return c.s.secrets.seal(raw)
 }
 
 func (c *connectionService) open(sealed string) (string, error) {
-	data, err := base64.RawStdEncoding.DecodeString(sealed)
-	if err != nil {
-		return "", err
-	}
-	key := sha256.Sum256(c.s.jwtKey)
-	block, err := aes.NewCipher(key[:])
-	if err != nil {
-		return "", err
-	}
-	a, err := cipher.NewGCM(block)
-	if err != nil {
-		return "", err
-	}
-	if len(data) < a.NonceSize() {
-		return "", errors.New("invalid sealed credential")
-	}
-	plain, err := a.Open(nil, data[:a.NonceSize()], data[a.NonceSize():], nil)
-	return string(plain), err
+	return c.s.secrets.open(sealed)
 }
 
 func (s *Server) registerConnections(mux *http.ServeMux) {
