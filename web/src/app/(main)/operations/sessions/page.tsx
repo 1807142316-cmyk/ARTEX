@@ -49,7 +49,6 @@ const reasonNames: Record<string, string> = {
 const intranetReasonNames: Record<string, string> = {
   no_session: "本任务尚无可用会话",
   session_stale: "会话心跳失联，通道已不可用",
-  no_credential: "尚无可用凭据引用",
   credential_expired: "凭据已过期",
   integration_unreachable: "会话适配器不可达",
 };
