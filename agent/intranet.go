@@ -27,7 +27,6 @@ const (
 
 	ReasonNoSession              = db.IntranetReasonNoSession
 	ReasonSessionStale           = db.IntranetReasonSessionStale
-	ReasonNoCredential           = db.IntranetReasonNoCredential
 	ReasonCredentialExpired      = db.IntranetReasonCredentialExpired
 	ReasonIntegrationUnreachable = db.IntranetReasonIntegrationUnreachable
 )

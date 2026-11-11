@@ -388,10 +388,10 @@ type intranetCredentialRef struct {
 }
 
 type intranetContext struct {
-	Variant     string                 `json:"variant"`
-	Available   bool                   `json:"available"`
-	Reason      string                 `json:"reason"`
-	Sessions    []intranetSessionRef   `json:"sessions"`
+	Variant     string                  `json:"variant"`
+	Available   bool                    `json:"available"`
+	Reason      string                  `json:"reason"`
+	Sessions    []intranetSessionRef    `json:"sessions"`
 	Credentials []intranetCredentialRef `json:"credentials"`
 }
 
@@ -403,8 +403,9 @@ func (h *intranetHarness) intranet(taskID int64) intranetContext {
 }
 
 // TestIntranetContextRequiresValidSessionAndCredential walks the unavailable
-// reasons in order and then shows the available payload for a task that has a
-// live session and a live credential reference.
+// reasons in order and then shows the available payload. Sessions are the gate:
+// a live session with no credential node at all is available (the adapter needs
+// none), and a live credential reference is attached as enrichment when present.
 func TestIntranetContextRequiresValidSessionAndCredential(t *testing.T) {
 	h := newIntranetHarness(t)
 
@@ -426,24 +427,39 @@ func TestIntranetContextRequiresValidSessionAndCredential(t *testing.T) {
 		t.Fatalf("stale context leaked entries: %+v", stale)
 	}
 
-	// Live session with no credential recorded at all: nothing to authenticate
-	// with, which is a different problem from an expired one.
+	// Live session with no credential recorded at all: available. The
+	// http_phpcmd adapter needs no credential_ref node, so requiring one made
+	// every session-only task permanently unusable.
 	noCredTask := h.task("no credential")
-	h.session(noCredTask, "no-cred-svc", "connected", 3600)
-	if got := h.intranet(noCredTask); got.Available || got.Reason != "no_credential" || got.Variant != "worker" {
-		t.Fatalf("no-credential context=%+v", got)
+	noCredSession := h.session(noCredTask, "no-cred-svc", "connected", 3600)
+	noCred := h.intranet(noCredTask)
+	if !noCred.Available || noCred.Reason != "" || noCred.Variant != "worker_intranet" {
+		t.Fatalf("no-credential context=%+v", noCred)
+	}
+	if len(noCred.Sessions) != 1 || noCred.Sessions[0].ID != noCredSession {
+		t.Fatalf("no-credential sessions=%+v", noCred.Sessions)
+	}
+	if len(noCred.Credentials) != 0 {
+		t.Fatalf("no-credential context invented credentials: %+v", noCred.Credentials)
 	}
 
-	// Live session, but the only credential for this task is expired.
+	// Live session, but the only credential for this task is expired: the
+	// context stays available and the expired credential is simply left out.
 	expiredTask := h.task("expired credential")
-	h.session(expiredTask, "expired-cred-svc", "connected", 3600)
+	expiredSession := h.session(expiredTask, "expired-cred-svc", "connected", 3600)
 	h.node(expiredTask, map[string]any{
 		"kind": "credential_ref", "external_ref": h.prefix + "-expired", "label": "old account", "scope": "domain",
 		"expires_at": time.Now().Add(-time.Minute).UTC().Format(time.RFC3339),
 	})
 	expired := h.intranet(expiredTask)
-	if expired.Available || expired.Reason != "credential_expired" || expired.Variant != "worker" {
+	if !expired.Available || expired.Reason != "" || expired.Variant != "worker_intranet" {
 		t.Fatalf("expired context=%+v", expired)
+	}
+	if len(expired.Sessions) != 1 || expired.Sessions[0].ID != expiredSession {
+		t.Fatalf("expired-credential sessions=%+v", expired.Sessions)
+	}
+	if len(expired.Credentials) != 0 {
+		t.Fatalf("expired credential was returned: %+v", expired.Credentials)
 	}
 
 	// Live session + live credential: the worker_intranet variant becomes usable.

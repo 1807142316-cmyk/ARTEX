@@ -4,6 +4,7 @@ import (
 	"context"
 	"database/sql"
 	"strconv"
+	"strings"
 	"time"
 )
 
@@ -18,15 +19,22 @@ const (
 // Intranet unavailable reasons. available=false always carries exactly one of
 // these and available=true never carries any.
 //
-// no_session / session_stale / credential_expired / integration_unreachable come
-// straight from the #10 contract. no_credential is the one addition: a task can
-// hold a perfectly live session and still have nothing to authenticate with, and
-// reporting that as credential_expired would be a lie the UI would have to
-// explain away.
+// Sessions are the gate: the http_phpcmd adapter needs no credential_ref node,
+// so a task with a live session is usable with an empty credential list.
+// Credentials are enrichment — an expired or inactive one is simply left out of
+// the returned list rather than turning the whole context off.
+//
+//   - no_session: the task owns no session at all.
+//   - session_stale: it owns sessions, but every one is past its heartbeat.
+//   - integration_unreachable: the only sessions it owns belong to adapters that
+//     cannot execute (disabled, auth_failed, unreachable), or the integration
+//     could not be read.
+//
+// credential_expired remains part of the public vocabulary because topology
+// edges use it; the intranet context itself no longer emits it.
 const (
 	IntranetReasonNoSession              = "no_session"
 	IntranetReasonSessionStale           = "session_stale"
-	IntranetReasonNoCredential           = "no_credential"
 	IntranetReasonCredentialExpired      = "credential_expired"
 	IntranetReasonIntegrationUnreachable = "integration_unreachable"
 )
@@ -79,11 +87,14 @@ func intranetStorageFailure() (IntranetContext, error) {
 
 // TaskIntranetContext resolves the intranet context for one task.
 //
-// Availability requires BOTH a usable session and a usable credential: a worker
-// handed only a session has no way in, and one handed only a credential has no
-// route. Unavailable reasons are ordered from most basic to most specific —
-// session problems outrank credential problems — so the same task always reports
-// the same reason.
+// A usable session is both necessary and sufficient: the worker reaches the
+// target through the session, and the adapter holds its own credential. Tasks
+// are gated by sessions only. Credentials are attached when they exist and are
+// still valid; expired/inactive ones are excluded, never fatal.
+//
+// Adapter-backed sessions additionally require their adapter to be enabled and
+// last observed reachable — advertising a session whose adapter is disabled or
+// rejected the credential would hand the worker a tool call that cannot run.
 func (d *DB) TaskIntranetContext(ctx context.Context, taskID int64) (IntranetContext, error) {
 	var exists bool
 	if err := d.QueryRowContext(ctx, `SELECT EXISTS(SELECT 1 FROM tasks WHERE id=$1)`, taskID).Scan(&exists); err != nil {
@@ -97,18 +108,36 @@ func (d *DB) TaskIntranetContext(ctx context.Context, taskID int64) (IntranetCon
 		return intranetStorageFailure()
 	}
 	usable := []IntranetSession{}
+	sawSession := false
 	stale := false
+	excluded := 0
 	for rows.Next() {
 		s, scanErr := scanInventory(rows)
 		if scanErr != nil {
 			rows.Close()
 			return intranetStorageFailure()
 		}
+		sawSession = true
 		switch s.EffectiveState {
 		case "connected":
-			if s.HeartbeatAt != nil {
-				usable = append(usable, IntranetSession{ID: s.ID, Host: s.Host, URL: s.URL, Protocol: s.ProtocolLabel, State: s.EffectiveState, HeartbeatAt: *s.HeartbeatAt})
+			if s.HeartbeatAt == nil {
+				continue
 			}
+			// Adapter-owned sessions are usable only while the adapter itself is
+			// in a runnable state. The adapter ID is carried in the source prefix
+			// written by the sync path.
+			if adapterID := connectionSourceAdapterID(s.Source); adapterID > 0 {
+				adapter, adapterErr := d.ConnectionAdapter(ctx, adapterID)
+				if adapterErr != nil {
+					rows.Close()
+					return intranetStorageFailure()
+				}
+				if adapter == nil || !adapter.Enabled || adapter.State != "reachable" {
+					excluded++
+					continue
+				}
+			}
+			usable = append(usable, IntranetSession{ID: s.ID, Host: s.Host, URL: s.URL, Protocol: s.ProtocolLabel, State: s.EffectiveState, HeartbeatAt: *s.HeartbeatAt})
 		case "stale":
 			stale = true
 		}
@@ -119,12 +148,18 @@ func (d *DB) TaskIntranetContext(ctx context.Context, taskID int64) (IntranetCon
 	}
 	rows.Close()
 	if len(usable) == 0 {
-		// Distinguish "never had a route in" from "went quiet": both leave the
-		// worker without a session, but only one of them is worth chasing.
-		if stale {
+		// Order the reasons from most basic to most specific so the same task
+		// always reports the same one.
+		switch {
+		case !sawSession:
+			return IntranetUnavailable(IntranetReasonNoSession), nil
+		case stale:
 			return IntranetUnavailable(IntranetReasonSessionStale), nil
+		case excluded > 0:
+			return IntranetUnavailable(IntranetReasonIntegrationUnreachable), nil
+		default:
+			return IntranetUnavailable(IntranetReasonNoSession), nil
 		}
-		return IntranetUnavailable(IntranetReasonNoSession), nil
 	}
 	rows, err = d.QueryContext(ctx, `SELECT id,label,scope,state,expires_at FROM session_inventory_nodes
  WHERE task_id=$1 AND kind='credential_ref' ORDER BY id`, taskID)
@@ -132,7 +167,6 @@ func (d *DB) TaskIntranetContext(ctx context.Context, taskID int64) (IntranetCon
 		return intranetStorageFailure()
 	}
 	credentials := []IntranetCredential{}
-	expired := false
 	for rows.Next() {
 		var id int64
 		var label, scope, state string
@@ -141,10 +175,9 @@ func (d *DB) TaskIntranetContext(ctx context.Context, taskID int64) (IntranetCon
 			rows.Close()
 			return intranetStorageFailure()
 		}
-		// An inactive (not merely expired) credential is also unusable; only the
-		// expiry gets its own reason, because only the expiry is self-explanatory.
+		// Expired and inactive credentials are excluded from the list. They do
+		// not gate the context: the session is what grants access.
 		if inventoryCredentialExpired("credential_ref", state, expiresAt) || state != "active" {
-			expired = true
 			continue
 		}
 		credentials = append(credentials, IntranetCredential{
@@ -156,12 +189,20 @@ func (d *DB) TaskIntranetContext(ctx context.Context, taskID int64) (IntranetCon
 		return intranetStorageFailure()
 	}
 	rows.Close()
-	switch {
-	case len(credentials) > 0:
-		return IntranetContext{Variant: IntranetVariantContextual, Available: true, Sessions: usable, Credentials: credentials}, nil
-	case expired:
-		return IntranetUnavailable(IntranetReasonCredentialExpired), nil
-	default:
-		return IntranetUnavailable(IntranetReasonNoCredential), nil
+	return IntranetContext{Variant: IntranetVariantContextual, Available: true, Sessions: usable, Credentials: credentials}, nil
+}
+
+// connectionSourceAdapterID extracts the adapter id from the "connection:<id>"
+// inventory source the C2 adapter writes. 0 means the row was not created by an
+// adapter (the read-only observer), so no adapter state applies to it.
+func connectionSourceAdapterID(source string) int64 {
+	const prefix = "connection:"
+	if !strings.HasPrefix(source, prefix) {
+		return 0
 	}
+	id, err := strconv.ParseInt(strings.TrimPrefix(source, prefix), 10, 64)
+	if err != nil || id < 1 {
+		return 0
+	}
+	return id
 }
