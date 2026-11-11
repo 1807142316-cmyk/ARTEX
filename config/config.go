@@ -52,6 +52,15 @@ func BaseDir() string {
 	return dir
 }
 
+// KeyDir keeps signing and configuration encryption material outside the
+// browsable data directory. Containers set ARTEX_KEY_DIR to a private volume.
+func KeyDir() string {
+	if dir := strings.TrimSpace(os.Getenv("ARTEX_KEY_DIR")); dir != "" {
+		return dir
+	}
+	return BaseDir()
+}
+
 // isGoRunDir reports whether dir is where `go run` parked its executable: under
 // the system temp dir (cache miss), or anywhere inside a Go build cache
 // (…/go-build/…, the cache-hit case — NOT under os.TempDir(), which is why the

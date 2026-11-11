@@ -5,5 +5,12 @@ services:
     build:
       context: .
       dockerfile: Dockerfile.source
+    environment:
+      ARTEX_KEY_DIR: /app/private
+      ARTEX_CONFIG: /app/private/config.json
     volumes:
       - ./content:/app/content:ro
+      - artex-private:/app/private
+
+volumes:
+  artex-private:

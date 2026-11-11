@@ -2,6 +2,7 @@ package server
 
 import (
 	"crypto/rand"
+	"errors"
 	"fmt"
 	"log"
 	"math/big"
@@ -45,28 +46,50 @@ func validatePassword(pw string) string {
 	return ""
 }
 
-// loadOrCreateJWTKey reads the 32-byte signing key from keyDir/jwt.key. keyDir is
-// the project base dir (next to the executable), NOT the browsable workspace root
-// (dataDir) — the signing key must never be listable/downloadable via the file
-// manager. Legacy installs kept it at dataDir/jwt.key; if present there and not yet
-// at the new location, it is migrated (key preserved, so sessions stay valid) and
-// the old file removed so it disappears from the workspace. On first run a random
-// key is generated and persisted.
-func loadOrCreateJWTKey(keyDir, dataDir string) ([]byte, error) {
-	path := filepath.Join(keyDir, jwtKeyFilename)
-	// one-time migration out of the old in-workspace location.
-	if legacy := filepath.Join(dataDir, jwtKeyFilename); legacy != path {
-		if _, err := os.Stat(path); os.IsNotExist(err) {
-			if data, rerr := os.ReadFile(legacy); rerr == nil {
-				if werr := os.WriteFile(path, data, 0o600); werr == nil {
-					_ = os.Remove(legacy)
-					log.Printf("[auth] JWT key 已从 %s 迁移到 %s（移出可浏览工作区）", legacy, path)
-				}
-			}
-		}
+// Keys live outside the browsable workspace. An explicit persistent directory
+// can migrate an existing executable-side key without changing login tokens or
+// the encryption key for stored proxy credentials. Unreadable or invalid keys
+// must fail startup rather than silently rotating encrypted configuration.
+func loadOrCreateJWTKey(keyDir, dataDir string, legacyDirs ...string) ([]byte, error) {
+	absKey, err := filepath.Abs(keyDir)
+	if err != nil {
+		return nil, err
 	}
-	if data, err := os.ReadFile(path); err == nil && len(strings.TrimSpace(string(data))) >= 32 {
-		return []byte(strings.TrimSpace(string(data))), nil
+	absData, err := filepath.Abs(dataDir)
+	if err != nil {
+		return nil, err
+	}
+	if rel, err := filepath.Rel(absData, absKey); err == nil && rel != ".." && !strings.HasPrefix(rel, ".."+string(filepath.Separator)) {
+		return nil, fmt.Errorf("JWT key directory must be outside the browsable data directory")
+	}
+	if err := os.MkdirAll(keyDir, 0700); err != nil {
+		return nil, fmt.Errorf("create key directory: %w", err)
+	}
+	path := filepath.Join(keyDir, jwtKeyFilename)
+	if key, err := readJWTKey(path); !errors.Is(err, os.ErrNotExist) {
+		return key, err
+	}
+	for _, legacyDir := range append(legacyDirs, dataDir) {
+		legacy := filepath.Join(legacyDir, jwtKeyFilename)
+		absLegacy, err := filepath.Abs(legacy)
+		if err != nil || absLegacy == filepath.Join(absKey, jwtKeyFilename) {
+			continue
+		}
+		key, err := readJWTKey(legacy)
+		if errors.Is(err, os.ErrNotExist) {
+			continue
+		}
+		if err != nil {
+			return nil, fmt.Errorf("read legacy JWT key: %w", err)
+		}
+		if err := persistJWTKey(path, key); err != nil {
+			return nil, err
+		}
+		if err := os.Remove(legacy); err != nil {
+			return nil, fmt.Errorf("remove migrated JWT key: %w", err)
+		}
+		log.Printf("[auth] JWT key 已迁移到 %s", path)
+		return key, nil
 	}
 	buf := make([]byte, 32)
 	for i := range buf {
@@ -76,11 +99,39 @@ func loadOrCreateJWTKey(keyDir, dataDir string) ([]byte, error) {
 		}
 		buf[i] = keyChars[n.Int64()]
 	}
-	if err := os.WriteFile(path, buf, 0600); err != nil {
-		return nil, fmt.Errorf("write jwt key: %w", err)
+	if err := persistJWTKey(path, buf); err != nil {
+		return nil, err
 	}
 	log.Printf("[auth] 新 JWT key 已写入 %s", path)
 	return buf, nil
+}
+
+func readJWTKey(path string) ([]byte, error) {
+	data, err := os.ReadFile(path)
+	if err != nil {
+		return nil, err
+	}
+	key := strings.TrimSpace(string(data))
+	if len(key) < 32 {
+		return nil, fmt.Errorf("invalid JWT key at %s; restore the existing key from backup", path)
+	}
+	return []byte(key), nil
+}
+
+func persistJWTKey(path string, key []byte) error {
+	f, err := os.OpenFile(path, os.O_WRONLY|os.O_CREATE|os.O_EXCL, 0600)
+	if err != nil {
+		return fmt.Errorf("create JWT key: %w", err)
+	}
+	_, writeErr := f.Write(key)
+	if writeErr == nil {
+		writeErr = f.Sync()
+	}
+	closeErr := f.Close()
+	if writeErr != nil {
+		return fmt.Errorf("persist JWT key: %w", writeErr)
+	}
+	return closeErr
 }
 
 // signJWT issues a 7-day HS256 token for user ARTEX.

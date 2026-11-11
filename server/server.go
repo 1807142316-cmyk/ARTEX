@@ -45,7 +45,7 @@ type Server struct {
 	ctx    context.Context
 
 	skillDir string // root directory for skill subdirectories
-	jwtKey   []byte // HS256 signing key loaded from / generated into dataDir/jwt.key
+	jwtKey   []byte // HS256 signing key in the private key directory
 
 	// concMu serializes concurrency-cap decisions (admission + reconcile) so a
 	// scheduler tick and an HTTP settings change / task creation can't both count
@@ -147,8 +147,8 @@ type triggeredRun struct {
 	mergeable bool   // true for finding/goal event triggers (merge by taskID)
 }
 
-func New(ctx context.Context, m *Manager, skillDir string, dataDir string, keyDir string) *Server {
-	key, err := loadOrCreateJWTKey(keyDir, dataDir)
+func New(ctx context.Context, m *Manager, skillDir string, dataDir string, keyDir string, legacyKeyDirs ...string) *Server {
+	key, err := loadOrCreateJWTKey(keyDir, dataDir, legacyKeyDirs...)
 	if err != nil {
 		log.Fatalf("[auth] JWT key: %v", err)
 	}

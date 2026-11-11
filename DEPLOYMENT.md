@@ -13,6 +13,12 @@ binary, and includes the `cve-import` command. Node, Chromium, and the existing
 tool dependencies are installed in the runtime image. PostgreSQL persists in
 the existing named volume; application data and skills keep their existing
 bind mounts. A local `content/` directory mounts read-only at `/app/content`.
+The source override mounts the private named volume `artex-private` at
+`/app/private` and sets `ARTEX_KEY_DIR` and `ARTEX_CONFIG` there. Signing keys and
+optional configuration survive application-container recreation and are outside
+the file-manager workspace. An existing invalid or unreadable key stops startup;
+it is never silently replaced. Binary deployments retain the executable-side key
+by default and can set `ARTEX_KEY_DIR` to an equivalent private persistent path.
 
 ## Offline CVE baseline
 
@@ -76,22 +82,38 @@ versions, task history and template metadata; the filesystem contains source
 material, keys and task artifacts. Keep these backups together and restrict
 access to configuration and keys.
 
-The current Compose configuration does not mount `/app/jwt.key` or an optional
-`/app/config.json`. Copy these out before removing or recreating the application
-container, and restore them before starting the replacement. Preserve the exact
-JWT key: proxy endpoint encryption also derives its key from this file. Keeping
-only the database and `data/` is insufficient to recover those credentials.
-For example, after creating a private backup directory:
+Before the first upgrade from a container without the source override's private
+volume, copy `/app/jwt.key` and optional `/app/config.json` out of the **running
+old container**. Do this before removing or recreating it. Preserve the exact key:
+proxy endpoint encryption also derives its key from this file. Keeping only the
+database and `data/` is insufficient to recover those credentials. For example,
+after creating a private backup directory:
 
 ```sh
 docker compose -f docker-compose.yml -f compose.source.yml cp artex:/app/jwt.key ./backup/jwt.key
 chmod 600 ./backup/jwt.key
 ```
 
-Copy `/app/config.json` as well when it exists. Do not print configuration,
-database credentials, or key contents in deployment logs. A persistent key mount
-or an equivalent restoration step is required before certifying application
-container recreation and upgrades.
+Copy `/app/config.json` as well when it exists. Create the replacement application
+container without starting it, then restore the saved files into its mounted
+private volume before starting:
+
+```sh
+docker compose -f docker-compose.yml -f compose.source.yml create artex
+docker compose -f docker-compose.yml -f compose.source.yml cp ./backup/jwt.key artex:/app/private/jwt.key
+# When a config.json was saved, copy it to artex:/app/private/config.json as well.
+docker compose -f docker-compose.yml -f compose.source.yml start artex
+```
+
+For subsequent backups copy `/app/private/jwt.key` and optional
+`/app/private/config.json`; restore them at those paths. Restrict the backup and
+restored key to owner access. Do not print configuration, database credentials,
+or key contents in deployment logs. Moving an existing binary to a new key path
+migrates its executable-side key first, then the legacy data-side key if present.
+Migration preserves the key and removes the old copy; failure aborts startup.
+The authenticated HTTP test recreates the server, retains the old login token,
+and checks a saved authenticated proxy. This test does not certify a full
+Compose upgrade, which still requires runtime acceptance.
 
 Restore into a separate PostgreSQL database first with `pg_restore`, restore the
 directories, then start the same application revision against that database.

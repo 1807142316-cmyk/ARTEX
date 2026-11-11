@@ -19,7 +19,7 @@ func TestTaskCreationRequestCanBeSafelyRetried(t *testing.T) {
 	td := t.TempDir()
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
-	s := New(ctx, m, td, td, td)
+	s := New(ctx, m, td, td, t.TempDir())
 	h := s.Handler()
 	tok, err := signJWT(s.jwtKey)
 	if err != nil {
