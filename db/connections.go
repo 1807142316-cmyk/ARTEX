@@ -98,7 +98,15 @@ func (d *DB) SaveConnectionAdapter(ctx context.Context, a *ConnectionAdapter) er
 	if a.ID == 0 {
 		return d.QueryRowContext(ctx, `INSERT INTO connection_adapters(name,kind,base_url,sealed_secret,secret_ref,timeout_seconds,heartbeat_ttl_seconds,enabled,task_id,asset_id) VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10) RETURNING id,state,last_error,checked_at,created_at,updated_at`, a.Name, a.Kind, a.BaseURL, a.SealedSecret, a.SecretRef, a.TimeoutSeconds, a.HeartbeatTTL, a.Enabled, a.TaskID, a.AssetID).Scan(&a.ID, &a.State, &a.LastError, &a.CheckedAt, &a.CreatedAt, &a.UpdatedAt)
 	}
-	result, err := d.ExecContext(ctx, `UPDATE connection_adapters SET name=$1,kind=$2,base_url=$3,sealed_secret=$4,secret_ref=$5,timeout_seconds=$6,heartbeat_ttl_seconds=$7,enabled=$8,task_id=$9,asset_id=$10,state='unconfigured',last_error='',checked_at=NULL,updated_at=now() WHERE id=$11`, a.Name, a.Kind, a.BaseURL, a.SealedSecret, a.SecretRef, a.TimeoutSeconds, a.HeartbeatTTL, a.Enabled, a.TaskID, a.AssetID, a.ID)
+	// An edit only invalidates the last probe when it changes the endpoint or the
+	// credential the probe used. Renames, timeouts, the enabled flag and
+	// task/asset associations keep the observed state: resetting on those made a
+	// harmless edit look like the adapter had gone offline.
+	result, err := d.ExecContext(ctx, `UPDATE connection_adapters SET name=$1,kind=$2,base_url=$3,sealed_secret=$4,secret_ref=$5,timeout_seconds=$6,heartbeat_ttl_seconds=$7,enabled=$8,task_id=$9,asset_id=$10,
+ state=CASE WHEN base_url IS DISTINCT FROM $3 OR sealed_secret IS DISTINCT FROM $4 THEN 'unconfigured' ELSE state END,
+ last_error=CASE WHEN base_url IS DISTINCT FROM $3 OR sealed_secret IS DISTINCT FROM $4 THEN '' ELSE last_error END,
+ checked_at=CASE WHEN base_url IS DISTINCT FROM $3 OR sealed_secret IS DISTINCT FROM $4 THEN NULL ELSE checked_at END,
+ updated_at=now() WHERE id=$11`, a.Name, a.Kind, a.BaseURL, a.SealedSecret, a.SecretRef, a.TimeoutSeconds, a.HeartbeatTTL, a.Enabled, a.TaskID, a.AssetID, a.ID)
 	if err != nil {
 		return err
 	}
