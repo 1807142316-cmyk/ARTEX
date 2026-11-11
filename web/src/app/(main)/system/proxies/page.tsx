@@ -107,12 +107,12 @@ export default function ProxiesPage() {
           </div>
           <p className="text-sm">系统默认出口：{pool?.system_default_proxy || "直连"}</p>
           <p className="text-muted-foreground text-sm">
-            透明网络沙箱（Linux，可选）开启后，任务 Bash 的连接、DNS 与忽略代理设置的流量都强制经过本任务租约；需要
-            NET_ADMIN / SYS_ADMIN 及 iproute2、nftables、util-linux。未开启时仅处理遵循代理设置的 HTTP 流量。
+            透明网络沙箱（Linux，可选）开启后，任务工具进程树内的 Bash、脚本、原始 TCP 连接与 DNS 查询（包括忽略代理设置的程序）都强制经过本任务租约；需要
+            NET_ADMIN / SYS_ADMIN 及 iproute2、nftables、util-linux。沙箱未开启或能力不足时，仅处理遵循代理设置的 HTTP 流量。
           </p>
           <p className="text-muted-foreground text-sm">
-            模型和联网搜索沿用各自的代理配置。任务出口以租约为准；健康检查每分钟执行，也可手动检查。启停代理池后，正在运行的任务需暂停并继续以重建工具环境。只处理遵循代理设置的
-            HTTP 流量。
+            模型和联网搜索沿用各自的代理配置。任务出口以租约为准；健康检查每分钟执行，也可手动检查。启停代理池后，正在运行的任务需暂停并继续以重建工具环境。
+            沙箱不覆盖：任务进程树之外的外部 MCP 与浏览器服务、应用自身的出站调用、DNS 以外的 UDP、ICMP，以及 SOCKS5 UDP ASSOCIATE。
           </p>
         </CardContent>
       </Card>

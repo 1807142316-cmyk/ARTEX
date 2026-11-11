@@ -142,29 +142,46 @@ Adapter fields: `name`, `kind` (`http_phpcmd` only), `base_url`, sealed
   plaintext. Omitting `secret` on update keeps the stored one. `base_url` must be
   absolute HTTP(S) with no userinfo, query or fragment. Association requires an
   existing task and an asset that belongs to it.
-- `POST /api/connections/adapters/{id}/check` performs a real `ping`:
-  `reachable`, `auth_failed` (remote 401/403 or protocol `unauthorized`),
-  `unreachable` (transport error/timeout). Disabled adapters are refused with 409
-  and make no request.
+- `POST /api/connections/adapters/{id}/check` performs a real `ping` and maps
+  the outcome onto three distinct states: `reachable` (the shell answered the
+  protocol — a well-formed `ok:false`, e.g. "exec disabled", still means the host
+  is up and keeps the remote message in `last_error`), `auth_failed` (HTTP
+  401/403 or protocol `unauthorized`), and `unreachable` (transport failure,
+  deadline, or a response that is not this protocol at all). Disabled adapters
+  are refused with 409 and make no request.
 - `POST /api/connections/adapters/{id}/sync` checks, then upserts exactly one
   inventory observation via `db.ObserveSession` with `kind=webshell`,
   `protocol_label=http_phpcmd`, `source=connection:<id>`, `source_id=<host>`,
   task/asset references and the adapter TTL. A failed check records
   `state=disconnected` with an explicit `disconnect_reason` rather than claiming
   connectivity.
+- A background heartbeat sweep runs every `connection_heartbeat_seconds`
+  (default 60, floor 15) from server start. It probes each **enabled** adapter
+  with four workers, writes the observation through the same code path as
+  `/sync`, skips disabled adapters entirely, and never overlaps itself. A
+  sweep and an operator sync share a per-adapter lock, so their sequence numbers
+  cannot interleave.
 - `GET /api/connections/sessions` lists adapter-owned inventory rows with their
-  adapter, capabilities and effective state. Sessions not owned by an adapter are
-  rejected with 409 on the execution endpoints.
+  adapter, capabilities and effective state. Paginated: `page`, `limit` (max
+  100), always returns `page`/`limit`/`total`/`truncated` plus `items`; the
+  `truncated` flag means further pages exist. Sessions not owned by an adapter
+  are rejected with 409 on the execution endpoints.
+- `GET /api/connections/adapters` returns every adapter plus `total`, bounded at
+  200 rows with `truncated=true` beyond that.
 - `GET/POST /api/connections/sessions/{id}/operations`. Request
   `{"action":"exec","cmd":"id","request_id":"..."}` or
-  `{"action":"exec","argv":["/bin/echo","hi"],"timeout_ms":500}`. Only
-  `ping`/`info`/`exec` are declared; anything else is recorded as `unsupported`
-  with an explicit error and no request is sent. Executing against a
-  `stale`/`disconnected` session or a disabled adapter returns 409.
+  `{"action":"exec","argv":["/bin/echo","hi"],"timeout_ms":500}`. The session in
+  the path is the only identifier: there is no `adapter_id` field, and unknown
+  body fields are refused. Only `ping`/`info`/`exec` are declared; anything else
+  is recorded as `unsupported` with an explicit error and no request is sent.
+  Executing against a `stale`/`disconnected` session or a disabled adapter
+  returns 409. The GET form is paginated the same way as the session list.
 - Every operation row keeps `request_id` (unique per session, so a retry replays
   the stored record instead of sending again), `action`, `args_summary`, `status`
   (`running`/`succeeded`/`failed`/`timeout`/`unsupported`), `exit_code`, bounded
-  `output` (64 KiB), `error`, `started_at` and `finished_at`.
+  `output` (64 KiB), `error`, `started_at`, `finished_at`, `session_sequence`
+  (the inventory sequence the operation ran against, captured at start) and
+  `output_ref` (`sha256:<hex>` of the stored output, NULL when empty).
 
 ### Protocol
 
@@ -172,7 +189,7 @@ Self-authored for ARTEX; not a reimplementation of any third-party shell.
 
 ```
 POST <base_url>          Content-Type: application/json
-X-Shell-Key: <secret>    (X-Artex-Key also accepted)
+X-Shell-Key: <secret>
 
 {"v":1,"id":"<request id>","action":"ping|info|exec","cmd":"...","nonce":"...","ts":N,
  "args":{"argv":[...],"cwd":"/tmp","timeout_ms":5000}}
@@ -194,9 +211,54 @@ adapter CRUD and secret redaction, unknown fields, cross-task asset rejection,
 check in all four states without network calls when disabled, single-session
 sync with task/asset association, stale/disconnect/reconnect, exec
 success/failure/timeout, output bounding, unsupported rejection without a network
-call, idempotent `request_id`, and 401 on unauthenticated calls.
-`TestConnectionAdapterRealPHPFixture` runs the same adapter against the real PHP
-container and is enabled by `ARTEX_TEST_PHP_URL` + `ARTEX_TEST_PHP_KEY`.
+call, idempotent `request_id`, operation pagination, `session_sequence`/
+`output_ref`, and 401 on unauthenticated calls.
+
+`TestConnectionAdapterRealPHPFixture` is the real-protocol acceptance run: the
+adapter talks to `tests/fixtures/php-webshell/` over HTTP, executed by a real PHP
+8.3 process, and asserts check/reachable, exec success, exit-7 failure, timeout,
+ping and output bounding. It has been run and passes on the Linux host
+`yeziyun` (Ubuntu 22.04, Docker, PostgreSQL 18) with:
+
+```sh
+# fixture
+cd tests/fixtures/php-webshell && docker build -t artex/php-fixture:8.3 .
+docker run -d --rm --name artex-php-fixture -p 127.0.0.1:18080:80 \
+  -e ARTEX_SHELL_KEY="$ARTEX_SHELL_KEY" artex/php-fixture:8.3
+
+# acceptance test (run from the repository root on the Linux host)
+ARTEX_PG_DSN='postgres://artex:artex@127.0.0.1:55433/artex_test?sslmode=disable' \
+ARTEX_TEST_PHP_URL='http://127.0.0.1:18080/index.php' \
+ARTEX_TEST_PHP_KEY="$ARTEX_SHELL_KEY" \
+  go test ./server -run 'TestConnectionAdapterRealPHPFixture' -count=1 -v
+```
+
+The scope of that claim is the protocol itself: connect/check, ping, info, exec
+with argv and `cmd`, non-zero exit, timeout, output bounding, and credential
+rejection. It does not certify an interactive PTY, upload/tunnel capabilities
+(which the adapter does not declare), or any third-party shell implementation.
+Hosts without the fixture skip the test via `ARTEX_TEST_PHP_URL`; the Go stub in
+`server/connections_http_test.go` covers the same cases on Windows.
+
+### Intranet context (issue #10)
+
+`GET /api/tasks/{id}/intranet-context` answers what the worker would receive.
+A task's context is gated by **sessions only**: one usable task-owned session
+makes it available, and the `http_phpcmd` adapter carries its own credential, so
+no `credential_ref` node is required. Credential references are attached as
+enrichment when present and still valid; expired or inactive ones are excluded
+from the list rather than making the whole context unavailable.
+
+Unavailable reasons, in the order they are chosen:
+
+- `no_session` — the task owns no session at all.
+- `session_stale` — it owns sessions, but every one is past its heartbeat.
+- `integration_unreachable` — the only sessions it owns belong to adapters that
+  are disabled, `auth_failed` or `unreachable` (a session that cannot execute is
+  not advertised), or the integration could not be read.
+
+`credential_expired` remains in the vocabulary because topology edges use it; the
+context itself no longer emits it.
 
 ### Worker execution seam
 

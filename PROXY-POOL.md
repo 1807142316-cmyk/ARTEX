@@ -32,15 +32,18 @@ ordinary target error does not automatically mark the proxy unhealthy. Health
 checks run every minute and are available manually. A failed lease must be
 reassigned before the operator resumes the task.
 
-Without the transparent sandbox (below) this is HTTP proxy routing only, not a
-network namespace or firewall. Raw TCP/UDP, DNS resolver traffic, programs that
-ignore proxy variables, custom remote MCP services, and browser services hosted
-outside the application process are not redirected. The UI states this scope. Changing pool
-settings while tools are already running requires pausing and continuing tasks
-to rebuild their process and browser environments. Pooled task Bash environments
-clear inherited `NO_PROXY` and `no_proxy` bypasses. Programs can still explicitly
-override their own proxy configuration. Without the sandbox no network isolation
-claim is made.
+With the transparent sandbox off, this is HTTP proxy routing only: raw TCP/UDP,
+DNS resolver traffic, programs that ignore proxy variables, custom remote MCP
+services, and browser services hosted outside the application process are not
+redirected. The UI states this scope. Changing pool settings while tools are
+already running requires pausing and continuing tasks to rebuild their process
+and browser environments. Pooled task Bash environments clear inherited
+`NO_PROXY` and `no_proxy` bypasses. Programs can still explicitly override their
+own proxy configuration. With the sandbox off no network isolation claim is
+made.
+
+With `egress_sandbox_enabled` on and the required capabilities present the scope
+is different, and is stated once in the sandbox section below.
 
 ## Transparent task egress sandbox (Linux)
 
@@ -75,9 +78,17 @@ Requirements: Linux with `CAP_SYS_ADMIN` (CLONE_NEWNET) and `CAP_NET_ADMIN`
 capabilities. Without them the sandbox cannot start and sandboxed tasks pause —
 no isolation is claimed for such a deployment.
 
-Still unsupported: processes outside the task process tree (custom remote MCP
-servers, separately hosted browser services, the application's own outbound
-calls), UDP other than DNS, and ICMP. Those keep the non-sandbox behavior above.
+Scope after the sandbox, stated precisely:
+
+- Forced through the task's netns and lease: Bash and scripts run by task tools
+  that execute inside the task process tree, including raw TCP clients and DNS
+  queries, whether or not the program honours proxy environment variables.
+- Deliberately not covered, and still on the pre-sandbox behaviour: external MCP
+  servers and browser services that run outside the task process tree, the
+  application's own internal calls (model, search, enrichment, notifications),
+  UDP other than DNS (so no QUIC, no custom UDP protocols), ICMP, and SOCKS5
+  `UDP ASSOCIATE` — the relay only speaks TCP and DNS, so a UDP-over-SOCKS5
+  client still fails closed rather than being tunnelled.
 
 Standalone scanning must either supply an associated task gateway or be rejected
 when the pool is enabled. The actual Agent-assembled Playwright MCP/Chromium
