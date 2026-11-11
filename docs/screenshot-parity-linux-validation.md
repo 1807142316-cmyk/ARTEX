@@ -183,3 +183,59 @@ These are scope and configured-denominator checks under a local workload,
 not precision benchmarking or the complete application-container acceptance.
 Raw logs remain `metrics-process.log` and `metrics-container.log` in the isolated
 validation directory. The disposable metrics container exited and was removed.
+
+## Sixteen workflow packages and execution evidence
+
+On 2026-11-11, content source `e7cddcc` passed all 31 actual Python CLI tests and
+all 16 authored package manifests on Ubuntu 22.04/Python 3.10.12. The batch adds
+Python AST review and ELF/PE structure inspection to the earlier fourteen
+workflows. The installed `/bin/true` ELF file was parsed as saved bytes. Tests
+also exercised malformed/truncated files, input limits, deterministic directory
+identity, output limits, forged manifests and standard-library import shadowing.
+The same 31 CLI tests passed with Windows Python 3.11.
+
+The fixed runner verifies instructions and script hashes, executes a private copy
+of the verified bytes with Python isolated mode, and emits explicit input and
+execution evidence. It has no arbitrary command argument. Reports remain
+`operator_reported`, separately from actual Agent Skill body-load statistics.
+See `SKILL-RUN-EVIDENCE.md` and the category/limit matrix in `skills/CONTENT.md`.
+
+After independent review, source `8039cb6` passed six top-level authenticated HTTP
+tests against a new `skills_final_acceptance` database in the existing independent
+Compose PostgreSQL project, with zero failures and zero skips:
+
+- Category/body/binding preservation and actual load counters.
+- All sixteen packages loaded through the assembled Agent Skill tool, with
+  resolved resource paths and real usage increments.
+- Recorded task/intent context and existing authenticated history details.
+- Immutable execution reports, authentication, conflict handling, output omission
+  from lists, and lossless roundtrip of two 64 KiB streams containing NUL/control
+  characters.
+- Historical reports retained after task deletion and HTTP application
+  reconstruction; original requests remain retryable.
+- Actual fixed workflow CLI execution and authenticated HTTP report submission.
+
+The immutable-report test also covers package modification and manifest removal:
+an identical accepted request still returns its historical record, changed
+content under the same client ID conflicts, and a new ID must still pass current
+package validation. This is the P2 review fix at `2ce0588`, merged into `8039cb6`.
+
+The HTTP tests ran as a bounded test executable on the Linux host against the
+independent Compose database; no application service or public port was deployed.
+The content archive SHA-256 is
+`9ef252564affa318816c555d4ed33d5a89732bde54feaa0314ed29864f49a478`.
+The final Linux HTTP test executable SHA-256 is
+`f0fde8286a9436db011957add8a469a0884b9c3d4b29fb8baf301ce11e99d114`.
+The 2,926-byte collected log archive `skills-final-evidence.tar.gz` has SHA-256
+`ab46e4e22bf230ba7d10a5b27c52c782883e9a43f427442c98d80ecfe346063e`;
+it was downloaded and verified locally. Raw CLI, manifest and HTTP logs remain
+in `/opt/artex-cve-validation`. The content manifest in the evidence records its
+content revision separately from the later HTTP source revision.
+
+The independent PostgreSQL container was stopped after testing. Its data and
+evidence remain, and the pre-existing ARTEX service stayed active with health
+`ok: true`. TypeScript and the 36-page static production build passed after the
+skill evidence panel was integrated; no interactive browser acceptance of that
+new panel is claimed. These results complete #7's original criteria for the
+delivered catalog, while complete screenshot parity, Linux Chromium, whole-image
+deployment, C2/WebShell control and the intranet worker remain parent-spec gaps.
