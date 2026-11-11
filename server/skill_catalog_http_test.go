@@ -157,7 +157,10 @@ func TestAuthoredSkillPackageLoadsWithResolvedResourcesAndUsage(t *testing.T) {
 	oldAugment := agent.ToolAugment
 	t.Cleanup(func() { agent.ToolAugment = oldAugment })
 	skillRoot := t.TempDir()
-	packageNames := []string{"saved-header-review", "evidence-inventory", "cve-record-review", "scope-asset-inventory", "har-api-inventory", "knowledge-package-check", "report-evidence-index"}
+	packageNames := []string{
+		"saved-header-review", "evidence-inventory", "cve-record-review", "scope-asset-inventory", "har-api-inventory", "knowledge-package-check", "report-evidence-index",
+		"tls-observation-review", "cors-policy-review", "cookie-attribute-review", "sshd-effective-config-review", "container-inspect-review", "iam-policy-review", "sbom-inventory-review",
+	}
 	for _, name := range packageNames {
 		for _, relative := range []string{"SKILL.md", "scripts/run.py"} {
 			content, err := os.ReadFile(filepath.Join("..", "skills", name, relative))
