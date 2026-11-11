@@ -161,6 +161,7 @@ func TestAuthoredSkillPackageLoadsWithResolvedResourcesAndUsage(t *testing.T) {
 		"saved-header-review", "evidence-inventory", "cve-record-review", "scope-asset-inventory", "har-api-inventory", "knowledge-package-check", "report-evidence-index",
 		"tls-observation-review", "cors-policy-review", "cookie-attribute-review", "sshd-effective-config-review", "container-inspect-review", "iam-policy-review", "sbom-inventory-review",
 		"python-source-review",
+		"binary-format-inspection",
 	}
 	for _, name := range packageNames {
 		for _, relative := range []string{"SKILL.md", "scripts/run.py"} {

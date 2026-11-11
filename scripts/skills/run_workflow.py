@@ -15,7 +15,7 @@ from urllib.parse import urlsplit
 from urllib.request import HTTPRedirectHandler, Request, build_opener
 import uuid
 
-WORKFLOWS = frozenset(("saved-header-review", "evidence-inventory", "cve-record-review", "scope-asset-inventory", "har-api-inventory", "knowledge-package-check", "report-evidence-index", "tls-observation-review", "cors-policy-review", "cookie-attribute-review", "sshd-effective-config-review", "container-inspect-review", "iam-policy-review", "sbom-inventory-review", "python-source-review"))
+WORKFLOWS = frozenset(("saved-header-review", "evidence-inventory", "cve-record-review", "scope-asset-inventory", "har-api-inventory", "knowledge-package-check", "report-evidence-index", "tls-observation-review", "cors-policy-review", "cookie-attribute-review", "sshd-effective-config-review", "container-inspect-review", "iam-policy-review", "sbom-inventory-review", "python-source-review", "binary-format-inspection"))
 OUTPUT_LIMIT = 64 * 1024
 INPUT_LIMIT = 1024 * 1024 * 1024
 

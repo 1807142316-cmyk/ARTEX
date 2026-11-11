@@ -27,7 +27,8 @@ var skillRunHashPattern = regexp.MustCompile(`^[a-f0-9]{64}$`)
 var offlineWorkflowNames = map[string]bool{
 	"saved-header-review": true, "evidence-inventory": true, "cve-record-review": true, "scope-asset-inventory": true, "har-api-inventory": true, "knowledge-package-check": true, "report-evidence-index": true,
 	"tls-observation-review": true, "cors-policy-review": true, "cookie-attribute-review": true, "sshd-effective-config-review": true, "container-inspect-review": true, "iam-policy-review": true, "sbom-inventory-review": true,
-	"python-source-review": true,
+	"python-source-review":     true,
+	"binary-format-inspection": true,
 }
 
 type workflowManifest struct {
