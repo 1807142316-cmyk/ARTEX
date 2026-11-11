@@ -1661,3 +1661,41 @@ CREATE TABLE IF NOT EXISTS skill_run_evidence (
  received_at TIMESTAMPTZ NOT NULL DEFAULT now()
 );
 CREATE INDEX IF NOT EXISTS idx_skill_run_evidence_skill ON skill_run_evidence(skill,id DESC);
+
+-- #9 C2/WebShell: operator-configured adapters and explicit operation records.
+-- Secrets are sealed with the instance key; only secret_ref is ever returned.
+CREATE TABLE IF NOT EXISTS connection_adapters (
+ id BIGSERIAL PRIMARY KEY,
+ name TEXT NOT NULL,
+ kind TEXT NOT NULL CHECK (kind IN ('http_phpcmd')),
+ base_url TEXT NOT NULL,
+ sealed_secret TEXT NOT NULL DEFAULT '',
+ secret_ref TEXT NOT NULL DEFAULT '',
+ timeout_seconds INTEGER NOT NULL DEFAULT 10 CHECK (timeout_seconds BETWEEN 1 AND 120),
+ heartbeat_ttl_seconds INTEGER NOT NULL DEFAULT 120 CHECK (heartbeat_ttl_seconds BETWEEN 1 AND 86400),
+ enabled BOOLEAN NOT NULL DEFAULT true,
+ state TEXT NOT NULL DEFAULT 'unconfigured' CHECK (state IN ('unconfigured','reachable','unreachable','auth_failed')),
+ last_error TEXT NOT NULL DEFAULT '',
+ checked_at TIMESTAMPTZ,
+ task_id BIGINT REFERENCES tasks(id) ON DELETE SET NULL,
+ asset_id BIGINT REFERENCES assets(id) ON DELETE SET NULL,
+ created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+ updated_at TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+CREATE UNIQUE INDEX IF NOT EXISTS idx_connection_adapters_name ON connection_adapters(name);
+CREATE TABLE IF NOT EXISTS connection_operations (
+ id BIGSERIAL PRIMARY KEY,
+ adapter_id BIGINT NOT NULL REFERENCES connection_adapters(id) ON DELETE CASCADE,
+ session_id BIGINT NOT NULL REFERENCES session_inventory(id) ON DELETE CASCADE,
+ request_id TEXT NOT NULL,
+ action TEXT NOT NULL,
+ args_summary TEXT NOT NULL DEFAULT '',
+ status TEXT NOT NULL CHECK (status IN ('running','succeeded','failed','timeout','unsupported')),
+ exit_code INTEGER,
+ output TEXT NOT NULL DEFAULT '',
+ error TEXT NOT NULL DEFAULT '',
+ started_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+ finished_at TIMESTAMPTZ,
+ UNIQUE (session_id, request_id)
+);
+CREATE INDEX IF NOT EXISTS idx_connection_operations_session ON connection_operations(session_id,id DESC);
