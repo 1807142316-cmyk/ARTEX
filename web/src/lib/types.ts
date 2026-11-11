@@ -1269,6 +1269,8 @@ export interface SkillCall {
   ts: string;
   agent_key: string;
   task_id: number; // 0 = 非任务场景（对话会话）
+  exploration_id: number;
+  intent_id: number;
   session_id: string;
   args_len: number;
 }

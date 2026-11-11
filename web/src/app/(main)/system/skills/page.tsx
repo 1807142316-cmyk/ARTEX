@@ -45,6 +45,17 @@ import { cn } from "@/lib/utils";
 import { api } from "@/lib/api";
 import type { Agent, SkillItem, MCPServer, SkillCall, MissingSkill } from "@/lib/types";
 
+function skillContextHref(call: SkillCall): string | undefined {
+  if (call.task_id > 0) {
+    const query = new URLSearchParams({ id: String(call.task_id) });
+    if (call.intent_id > 0) query.set("session", `intent:${call.intent_id}`);
+    else if (call.agent_key === "planner" || call.agent_key === "goals") query.set("session", "plan");
+    return `/function/tasks/detail?${query}`;
+  }
+  const conversation = /^conv-([1-9]\d*)$/.exec(call.session_id);
+  return conversation ? `/chat?c=${conversation[1]}` : undefined;
+}
+
 function fmtTime(ts?: string) {
   if (!ts) return "从未调用";
   return new Date(ts).toLocaleString("zh-CN", {
@@ -922,7 +933,7 @@ export default function SkillsPage() {
                     <p className="text-xs text-muted-foreground">加载调用明细…</p>
                   ) : usageCalls.length > 0 ? (
                     <div className="rounded-md border">
-                      <div className="border-b px-2 py-1 text-xs text-muted-foreground">最近 {usageCalls.length} 次调用</div>
+                      <div className="border-b px-2 py-1 text-xs text-muted-foreground">最近 {usageCalls.length} 次 Skill 加载记录</div>
                       <div className="max-h-56 overflow-y-auto">
                         {usageCalls.map((c, i) => (
                           <div key={`${c.ts}-${i}`} className="flex items-center gap-2 border-b px-2 py-1 text-xs last:border-b-0">
@@ -931,6 +942,11 @@ export default function SkillsPage() {
                             <span className="ml-auto text-muted-foreground">
                               {c.task_id > 0 ? `任务 #${c.task_id}` : c.session_id ? "对话会话" : "—"}
                             </span>
+                            {skillContextHref(c) && (
+                              <a className="shrink-0 text-primary hover:underline" href={skillContextHref(c)}>
+                                查看执行上下文
+                              </a>
+                            )}
                           </div>
                         ))}
                       </div>
@@ -938,6 +954,7 @@ export default function SkillsPage() {
                   ) : (
                     <p className="text-xs text-muted-foreground">还没有调用记录。</p>
                   )}
+                  <p className="text-xs text-muted-foreground">加载记录表示 Agent 读取了技能正文；执行上下文保留已有工具输入、输出和错误，不代表脚本已执行成功。</p>
                 </div>
 
                 {/* ── 左侧：关联 MCP + 可见性 ── */}

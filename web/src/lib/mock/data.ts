@@ -3245,9 +3245,9 @@ export const skills: SkillItem[] = [
 ];
 
 export const skillCalls: SkillCall[] = [
-  { ts: "2026-08-20T09:12:00Z", agent_key: "worker", task_id: 42, session_id: "", args_len: 128 },
-  { ts: "2026-08-20T08:03:00Z", agent_key: "planner", task_id: 42, session_id: "", args_len: 0 },
-  { ts: "2026-08-19T17:55:00Z", agent_key: "worker", task_id: 37, session_id: "", args_len: 64 },
+  { ts: "2026-08-20T09:12:00Z", agent_key: "worker", task_id: 42, exploration_id: 0, intent_id: 0, session_id: "", args_len: 128 },
+  { ts: "2026-08-20T08:03:00Z", agent_key: "planner", task_id: 42, exploration_id: 0, intent_id: 0, session_id: "", args_len: 0 },
+  { ts: "2026-08-19T17:55:00Z", agent_key: "worker", task_id: 37, exploration_id: 0, intent_id: 0, session_id: "", args_len: 64 },
 ];
 
 export const missingSkills: MissingSkill[] = [
