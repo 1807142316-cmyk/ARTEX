@@ -16,8 +16,9 @@ The destination retains the existing authenticated activity pagination and lazy
 detail APIs for recorded tool inputs, outputs and errors. An execution-context
 link does not associate a later tool call with a particular Skill load, and a
 successful Skill body load does not mean the workflow script ran or succeeded.
-There is no added command runner, automatic script invocation or speculative
-matching of subsequent shell commands.
+Context navigation adds no automatic script invocation or speculative matching
+of subsequent shell commands. The separate fixed offline workflow runner and
+its explicitly reported results are documented in [execution evidence](SKILL-RUN-EVIDENCE.md).
 
 `TestSkillLoadHistoryRetainsTaskExecutionContext` exercises an actual assembled
 Skill load, authenticated recent-call retrieval, the exact-intent lookup used
@@ -25,5 +26,8 @@ by navigation, existing session history and recorded activity details against
 real PostgreSQL. It does not substitute for interactive browser acceptance or
 claim exact per-workflow script input/output/result binding.
 
-Issue #7 therefore still tracks precise workflow-execution attribution and the
-remaining screenshot-category coverage assessment separately from this change.
+The offline runner records the exact input digest, package hashes, bounded
+outputs and exit outcome for its fixed catalog. These operator-reported runs
+remain separate from Skill body loads and general task activity. They do not
+infer an execution relationship for arbitrary later tool calls. The delivered
+category coverage and its limits are documented in [the content inventory](skills/CONTENT.md).

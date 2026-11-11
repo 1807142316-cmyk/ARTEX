@@ -2,7 +2,7 @@
 
 `scripts/skills/run_workflow.py` runs one fixed, authored offline workflow with a
 saved local input. It emits an execution report and can submit that report to the
-authenticated ARTEX API. It accepts only the fifteen named packages in its catalog;
+authenticated ARTEX API. It accepts only the sixteen named packages in its catalog;
 it has no arbitrary command or script argument. The application stores reports and
 does not execute uploaded skill code.
 
@@ -54,7 +54,9 @@ not a security finding or an independent verification decision.
 The complete report is printed to stdout before optional submission. A transport
 failure leaves it available for retry through `POST /api/skill-runs` with the same
 JSON and authenticated JWT. Successful submission prints the stored report ID to
-stderr. Reports must match the currently installed content manifest when submitted.
+stderr. A new report must match the currently installed content manifest when
+first submitted. An identical retry of a previously accepted client ID returns
+its stored historical report even after the installed package changes or is removed.
 The server labels them `operator_reported`: matching hashes identify the reported
 package, but do not attest that a remote operator executed it honestly.
 
