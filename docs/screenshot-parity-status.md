@@ -1,6 +1,6 @@
 # 截图功能对齐实施状态
 
-实施分支：`codex/screenshot-parity-integration`。最新产品及技能审查修复为 `8039cb6`。父 issue #1 尚未全部完成；#2、#3、#4、#5、#6、#7、#11 已完成，#8–#10 保持开启，即 10 个子任务中完成 7 个。最新 Linux 数据及内容验收见[实际运行记录](screenshot-parity-linux-validation.md)。
+实施分支：`codex/screenshot-parity-integration`。最新一轮为 #8–#10 补全与双轴审查修复，位于 `codex/issues-8-10-integration`（`10134e2`）。父 issue #1 尚未全部完成；#2、#3、#4、#5、#6、#7、#11 已完成，#8、#9、#10 在本轮交付并总结关闭依据，即 10 个子任务全部有结论。最新 Linux 数据及内容验收见[实际运行记录](screenshot-parity-linux-validation.md)。
 
 ## Ticket 覆盖
 
@@ -12,9 +12,9 @@
 | #5 CVE | 官方全量421,793条在独立 Linux Compose PostgreSQL 实际导入；原库及恢复库认证 HTTP 检索、统计、原始记录、离线查询、备份恢复和重启检查通过 | Ticket 数据验收完成；整套应用镜像部署和升级仍由父 spec 跟踪 |
 | #6 模板 | 固定 Nuclei 3.4.10；11 条官方 MIT 原文模板及 3 条原创检查；status/word/regex、正文/头匹配及提取；原子离线导入、历史快照、候选证据、取消和任务代理；Linux 8 项 HTTP/实际引擎与 5 项语法/包测试通过 | 已关闭；兼容范围见 SCANNING.md，完整社区格式及父 spec 整体内容对齐不能据此判定完成 |
 | #7 技能 | 16 个新增 Python 标准库工作流，保留原 3 包；分类/目录/导入/编辑及绑定保护、精确加载上下文、固定离线工作流输入摘要/输出/退出结果；Linux 31 项 CLI、16 包哈希及 6 项真实 HTTP/PostgreSQL 验收通过 | 已关闭；执行报告标为操作方上报，未知私有技能目录与完整截图能力对齐由父 #1 跟踪，不能据此宣称全部复刻 |
-| #8 代理池 | 原有池/租约/健康/故障/审计与任务 HTTP/录制/模板接线；Windows 和 Linux 实际 Agent MCP/Chromium 双任务不同出口验收通过，Linux 6 项网关 HTTP/PostgreSQL 回归通过 | 原始 TCP/UDP、DNS及忽略代理设置的程序不受透明强制，完整目标流量策略尚不满足，保持开启 |
-| #9 C2/WebShell | 新增认证的外部会话观察登记、心跳/过期/断开、任务资产关联、审计、页面及实际 HTTP 健康观察 CLI；5 项真实 HTTP/PostgreSQL 测试通过 | 观察模块不等于 C2/WebShell 控制适配器；真实 HTTP/PHP 协议操作未交付，交互式浏览器验收未运行，保持开启 |
-| #10 内网拓扑 | 新增显式主机/网段/会话/隧道元数据/凭据引用关系、失效传播、任务筛选及审计；不按同网段推断边 | 依赖的真实控制会话适配器及 worker 内网上下文未交付，保持开启 |
+| #8 代理池 | 原有池/租约/健康/故障/审计与任务 HTTP/录制/模板接线；新增透明任务出口沙箱（`egress_sandbox_enabled`）：任务进程树内的 Bash/脚本、原始 TCP 与 DNS（UDP/TCP 53）在具备 `CAP_SYS_ADMIN`/`CAP_NET_ADMIN` 时强制经本任务租约，其余出站丢弃；故障沿用暂停/切换/显式直连策略并留审计。Linux 7 项 `egress` 单元/沙箱测试与 4 项任务级沙箱验收（双任务不同出口+DNS、建立失败暂停、中继死亡策略、显式直连）通过；6 项网关 HTTP/PostgreSQL 回归与 Windows、Linux 实际 Agent 浏览器双出口验收通过 | 任务进程树之外的外部 MCP/浏览器服务、应用自身出站、非 DNS UDP、ICMP 及 SOCKS5 UDP ASSOCIATE 不透明强制，已在 PROXY-POOL.md 与界面写明；完整容器发布由父 spec 跟踪 |
+| #9 C2/WebShell | 交付 `http_phpcmd` 真实适配器：连接配置、上线/离线与显式断开原因、后台心跳巡检（`connection_heartbeat_seconds`，默认 60、最小 15）、任务/资产关联、能力约束操作与请求/完成/失败/超时/不支持记录（含 `session_sequence` 与 `output_ref`）、凭据受控密封与不回显、分页列表、C2/WebShell 页面。Linux 真实 PHP 8.3 容器 + 真实 PostgreSQL 下全部通过，含真实 `exec`、失败退出码、超时与输出上限；Windows 与 Linux 合计 33 项相关顶层测试通过 | 交互式浏览器验收仍未运行；其他 C2 协议按 kind 明确拒绝 |
+| #10 内网拓扑 | 显式主机/网段/会话/隧道元数据/凭据引用关系、失效传播、任务筛选及审计；不按同网段推断边。边新增可读原因（会话失联/断开、节点失效、凭据过期、隧道失效、任务不匹配）与任务筛选摘要。`worker_intranet` 上下文以会话为门槛，凭据作为附加上下文且过期即排除；禁用/认证失败/不可达适配器名下的会话不展示并报 `integration_unreachable`；`intranet_exec` 接入真实适配器，每次调用重校验任务归属与有效状态。真实 HTTP/PostgreSQL 与真实 PHP 会话验收通过 | 交互式浏览器验收未运行；无会话或无凭据时的空态已在页面明确展示 |
 | #11 CVE更新 | 默认定时同步、立即更新/开关、持久化状态/游标、互斥、恢复、遗漏窗口协调、缓存校验/保留策略；真实 HTTP/PostgreSQL 测试覆盖 | Linux整体验收仍由父 spec 跟踪 |
 
 ## 实际运行证据
@@ -32,9 +32,20 @@
 - `pg_dump` 完整导出并恢复至独立库，重新启动新版本应用后经认证HTTP确认统计仍为421,793，且可检索 `CVE-2021-44228`。
 - 本地内容在 `content/cve/`，包括官方ZIP、manifest及数据库备份；大文件排除Git。跟踪的manifest足以重新下载并核验原始ZIP。
 
-完整服务端测试仍有 Windows 环境失败：Python执行别名返回9009、证据目录 fsync 返回 Access denied。已在未修改的 `f3e3f54` 基线复现；本次修复了技能路径分隔符失败，其余不冒充回归通过。
+- 本轮 `593e9f4...10134e2` 在 Windows 独立 PostgreSQL 17 与 Linux（Ubuntu 22.04，独立 PostgreSQL 18 容器）分别运行：`TestConnection*`、`TestIntranet*`、`TestSessionInventory*`、`TestProxyPool*` 共 33 项顶层测试通过，0 失败；Linux 侧带真实 PHP 8.3 容器（`artex-php-fixture9`，仅绑定 127.0.0.1:18081）执行，`TestConnectionAdapterRealPHPFixture`、`TestIntranetExecUsesRealPHPSession` 均实际通过，无跳过。
+- Linux 侧 `ARTEX_EGRESS_SANDBOX=1` 运行 7 项 `egress` 包沙箱测试与 4 项任务级沙箱验收全部通过：双任务不同出口并各自解析 DNS、沙箱建立失败暂停、中继死亡按策略处理、显式直连回退留审计。`TestProxyPoolRealAgentBrowserKeepsTaskExitsSeparate` 仍为环境门控（需显式提供浏览器路径），不计入本轮通过数。
+- 真实 PHP 夹具协议冒烟（ping、echo 退出码、超时、错误密钥 401、查询串 400、超限 413）在 Linux 全部通过。夹具仅存在于 `tests/fixtures/php-webshell/`，不进入生产构建路径。
+- 新页面通过 TypeScript 检查（`tsc --noEmit` 无输出）；`go build ./...` 与 `go vet ./server ./db ./agent ./egress` 在 Windows 与 Linux 均通过。
+
+完整服务端测试仍有 Windows 环境失败：Python执行别名返回9009、证据目录 fsync 返回 Access denied。已在未修改的 `f3e3f54` 基线复现；设置 `ARTEX_TEST_PYTHON` 指向真实解释器后相关用例通过，其余不冒充回归通过。
 
 ## 双轴审查
+
+本轮 `593e9f4...10134e2` 的 #8–#10 增量也做了独立 Standards/Spec 审查，修复落在同一分支（`4005725`…`c8601e5`，另加两项测试稳定性修复 `7a6d502`、`10134e2`）：
+
+Standards：已修复列表未分页、操作记录缺会话 sequence 与输出引用、连接凭据密封逻辑重复且直接取自 JWT 密钥（改为统一领域分离派生并保留旧格式回退）、超时范围文档/校验/schema 不一致、UTF-8 截断、编辑适配器无条件重置健康状态、LIKE 转义重复与派生表 `SELECT *`、约束名冲突字符串匹配。未发现其他硬性规则违反。
+
+Spec：已修复心跳仅手动（新增后台巡检并提取共用同步路径）、内网上下文错误地同时要求会话与凭据（改为以会话为门槛）、探测把协议级失败误判为不可达、内网上下文展示禁用/认证失败适配器的会话、未文档化的 `adapter_id` 入参与多余密钥头。审查确认后补上适配器到 `intranet_exec` 的真实执行接线。已知范围边界（外部 MCP、非 DNS UDP、SOCKS5 UDP ASSOCIATE、交互式浏览器验收）未作为缺陷处理，已在文档与页面写明。
 
 `034de93...e7cddcc` 技能增量的独立 Standards/Spec 审查共同发现一项 P2：旧报告重试依赖当前技能文件。`2ce0588` 在客户端 ID 事务锁内先读取历史、仅首次写入验证当前包，并补充真实 HTTP 回归；修复合入 `8039cb6` 后在 Linux 再次通过。Spec 复核确认该问题已解决，16 包分类矩阵已同步，#7 的原始四项验收满足。Standards 未发现硬性规则违反；多处固定目录是低优先级维护建议，当前保留运行器、服务端的独立边界及测试的独立预期。
 
