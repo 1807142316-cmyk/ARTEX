@@ -1,6 +1,6 @@
 # 截图功能对齐实施状态
 
-实施分支：`codex/screenshot-parity-integration`。最终产品及修复基线为 `bcaee3b`，后续交付记录提交继续保留在同一分支。父 issue #1 尚未全部完成；当前已关闭 #2、#3、#4、#11，其余保持开启。
+实施分支：`codex/screenshot-parity-integration`。最终产品及修复基线为 `bcaee3b`，后续交付记录提交继续保留在同一分支。父 issue #1 尚未全部完成；#2、#3、#4、#5、#11 已完成，其余保持开启。最新 Linux 数据验收见[实际运行记录](screenshot-parity-linux-validation.md)。
 
 ## Ticket 覆盖
 
@@ -9,9 +9,9 @@
 | #2 仪表盘 | 快速开始、阶段目标、现有设置继承、持久化幂等、真实统计、范围明确的资源接口；真实浏览器及 HTTP/PostgreSQL 验证 | Linux cgroup/进程指标数值对比属于父 spec 发布验收，尚未运行 |
 | #3 发现 | 严重性、检索、分页、展开及保留原详情操作；真实 HTTP/PostgreSQL 验证 | 原始截图无法从当前上下文重新取图做像素对照 |
 | #4 知识库 | 导入/去重/版本/审核/验证/发布/撤销、逻辑调用去重、`kb_search`/`kb_get`、六条实质草稿；候选来源分页、正文搜索开关、来源证据预览及解绑后 GC 保留；真实 HTTP/PostgreSQL 与浏览器闭环 | 已关闭；Linux 整体验收由父 spec 跟踪 |
-| #5 CVE | 官方全量421,793条已实际导入；本地检索、真实年份/状态统计、原始记录；浏览器及备份恢复检查通过 | Ticket 明确要求的 Linux Compose 实际环境验收未运行，保持开启 |
+| #5 CVE | 官方全量421,793条在独立 Linux Compose PostgreSQL 实际导入；原库及恢复库认证 HTTP 检索、统计、原始记录、离线查询、备份恢复和重启检查通过 | Ticket 数据验收完成；整套应用镜像部署和升级仍由父 spec 跟踪 |
 | #6 模板 | 固定 Nuclei 3.4.10 实际执行静态 GET/状态码检查；三条真实模板、异步运行、版本快照、分页历史、请求响应与待审发现；任务停止取消、输出上限与任务代理接线；真实引擎及浏览器验证 | 完整社区格式与模板语料未交付；Linux 未运行，保持开启 |
-| #7 技能 | 分类持久化、元数据及绑定保护；七个新 Python 标准库工作流，真实 Agent 加载、调用账本、输入输出/失败测试及内容清单；原三个基础技能保留 | 未覆盖截图全部类别；Linux 实际执行未验收，保持开启 |
+| #7 技能 | 分类持久化、元数据及绑定保护；七个新 Python 标准库工作流，真实 Agent 加载、调用账本、输入输出/失败测试及内容清单；Linux Python 的9项命令测试和7包哈希核验通过；原三个基础技能保留 | 未覆盖截图全部类别，保持开启 |
 | #8 代理池 | HTTP/HTTPS/SOCKS5 配置、健康检查、加密凭据、独占任务租约、显式回退、故障暂停及审计；代理网关、录制开关路径、原生 HTTP/HTTP enrichment 及模板接线；旧连接取消与监控修复；页面添加/检查/启用/分配已验收 | Agent 浏览器实际出口及 Linux 运行未验收；原始 TCP/UDP、DNS及忽略代理设置的程序不受透明强制，完整目标流量策略尚不满足，保持开启 |
 | #9 C2/WebShell | 无新增实现 | 真实会话后端及 HTTP/PHP 操作未交付，保持开启；本次未提供远程任意命令执行功能 |
 | #10 内网拓扑 | 无新增实现 | 依赖真实会话集成、关系变化及 worker 内网变体未交付，保持开启 |
@@ -40,4 +40,4 @@ Spec：已修复缺增量包时游标提前推进、坏缓存阻止重试、CVE�
 
 ## Linux 交付边界
 
-新增 `Dockerfile.source` 和 `compose.source.yml` 从本分支源码构建，步骤见根目录 `DEPLOYMENT.md`。Linux amd64 二进制交叉编译通过。本机没有 Docker daemon 或可用 WSL，Compose冷启动/升级、Linux指标读数及Linux备份恢复未运行。不得把交叉编译或Windows数据库恢复标记为这些条件通过。
+新增 `Dockerfile.source` 和 `compose.source.yml` 从本分支源码构建，步骤见根目录 `DEPLOYMENT.md`。本地 Windows 主机仍无可用 Linux 容器环境；用户随后提供的 Ubuntu 服务器已用于独立数据验收，见[Linux记录](screenshot-parity-linux-validation.md)。CVE全量、认证HTTP、Linux数据库备份恢复及7个原创技能命令已实际运行。整套应用镜像冷启动/升级、Linux指标和Agent浏览器出口仍未验收。现有Compose未持久挂载JWT/config，重建应用前必须按部署文档保存；整套平台发布不能仅凭数据验收判定通过。

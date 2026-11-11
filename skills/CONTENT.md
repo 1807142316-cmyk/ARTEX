@@ -41,6 +41,7 @@ for invalid input. The result files remain task evidence.
 
 These packages cover seven workflows. They do not claim to reproduce every
 directory or capability visible in the target screenshots. Existing `api-recon`,
-`playwright-cli`, and `scopesentry` content remains unchanged. Linux runtime
-execution remains part of release acceptance; local Windows Python checks alone
-do not certify that environment.
+`playwright-cli`, and `scopesentry` content remains unchanged. On 2026-11-11,
+nine CLI tests and all seven authored package manifests passed on Ubuntu 22.04
+with Python 3.10.12. See `docs/screenshot-parity-linux-validation.md`. This does
+not certify the complete platform container, Agent browser or remaining content.

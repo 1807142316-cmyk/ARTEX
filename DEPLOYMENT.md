@@ -76,6 +76,23 @@ versions, task history and template metadata; the filesystem contains source
 material, keys and task artifacts. Keep these backups together and restrict
 access to configuration and keys.
 
+The current Compose configuration does not mount `/app/jwt.key` or an optional
+`/app/config.json`. Copy these out before removing or recreating the application
+container, and restore them before starting the replacement. Preserve the exact
+JWT key: proxy endpoint encryption also derives its key from this file. Keeping
+only the database and `data/` is insufficient to recover those credentials.
+For example, after creating a private backup directory:
+
+```sh
+docker compose -f docker-compose.yml -f compose.source.yml cp artex:/app/jwt.key ./backup/jwt.key
+chmod 600 ./backup/jwt.key
+```
+
+Copy `/app/config.json` as well when it exists. Do not print configuration,
+database credentials, or key contents in deployment logs. A persistent key mount
+or an equivalent restoration step is required before certifying application
+container recreation and upgrades.
+
 Restore into a separate PostgreSQL database first with `pg_restore`, restore the
 directories, then start the same application revision against that database.
 Check local CVE search, knowledge state, task history and skill availability
@@ -89,9 +106,12 @@ The implementation has been tested on Windows with a real isolated PostgreSQL
 The full 421,793-record database was dumped, restored into a separate database,
 and reopened with this application; authenticated statistics and a retained CVE
 search succeeded. The local backup is `content/cve/corpus.pgcustom`.
-This workspace has no Docker daemon or configured WSL distribution; Compose
-cold start, Linux metric comparison, and backup restoration on Linux still need
-runtime verification. A successful cross-build does not certify those checks.
+This Windows workspace has no Docker daemon or configured WSL distribution.
+Subsequent validation on the user-supplied Ubuntu host passed CVE full import,
+offline queries, authenticated handlers against Compose PostgreSQL, database
+backup/restore/restart, and the seven authored workflows. Evidence is in
+`docs/screenshot-parity-linux-validation.md`. Whole-application Compose cold
+start, upgrades, Chromium and Linux metric comparison remain unverified.
 
 ## Local Linux runtime probe (2026-11-11)
 
@@ -113,5 +133,6 @@ The pinned runtime npm releases `@playwright/mcp@0.0.85`,
 `@playwright/cli@0.1.24` and `playwright@1.65.0` exist in the registry. This checks
 package availability only; it does not certify Linux installation, Chromium
 startup, Compose startup/upgrade/restore, Linux metrics or Linux skill execution.
-Issue #5's Linux deployment acceptance therefore remains open. Run the documented
-Compose flow on an existing Linux Docker host before closing that acceptance.
+This local probe was followed by the remote CVE/workflow acceptance described
+above. Issue #5's data acceptance is complete; the parent spec still tracks
+whole-application deployment, upgrades, metrics and browser acceptance.
