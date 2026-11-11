@@ -466,10 +466,26 @@ func TestConnectionSyncUpsertsOneInventorySessionWithAssociation(t *testing.T) {
 	if found != 1 {
 		t.Fatalf("adapter session missing from list: %v", list)
 	}
-	// Cross-task asset association is rejected before anything is written.
+	// Unauthenticated reads are refused like every other management endpoint.
+	if code, _ := e.call(t, "GET", "/api/connections/adapters", nil, false); code != 401 {
+		t.Fatalf("unauthorized adapter list=%d", code)
+	}
+	if code, _ := e.call(t, "GET", "/api/connections/sessions", nil, false); code != 401 {
+		t.Fatalf("unauthorized session list=%d", code)
+	}
+	if code, _ := e.call(t, "GET", fmt.Sprintf("/api/connections/sessions/%d/operations", sessionID), nil, false); code != 401 {
+		t.Fatalf("unauthorized operation list=%d", code)
+	}
+	// Missing or cross-task references are rejected before anything is written.
 	code, rejected := e.call(t, "PUT", fmt.Sprintf("/api/connections/adapters/%d", adapterID), map[string]any{"name": name, "kind": "http_phpcmd", "base_url": stub.url(), "secret_ref": "sync-key", "timeout_seconds": 5, "task_id": taskID, "asset_id": otherAsset}, true)
 	if code != 400 {
 		t.Fatalf("cross-task asset accepted=%d %v", code, rejected)
+	}
+	if code, _ := e.call(t, "PUT", fmt.Sprintf("/api/connections/adapters/%d", adapterID), map[string]any{"name": name, "kind": "http_phpcmd", "base_url": stub.url(), "secret_ref": "sync-key", "timeout_seconds": 5, "task_id": int64(922337203685477000)}, true); code != 400 {
+		t.Fatalf("unknown task accepted=%d", code)
+	}
+	if code, _ := e.call(t, "PUT", fmt.Sprintf("/api/connections/adapters/%d", adapterID), map[string]any{"name": name, "kind": "http_phpcmd", "base_url": stub.url(), "secret_ref": "sync-key", "timeout_seconds": 5, "asset_id": int64(922337203685477000)}, true); code != 400 {
+		t.Fatalf("unknown asset accepted=%d", code)
 	}
 	// The adapter's session can be disconnected through the existing inventory path
 	// and a later sync reports the source back online.
