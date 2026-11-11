@@ -40,6 +40,7 @@ import {
   SheetHeader,
   SheetTitle,
 } from "@/components/ui/sheet";
+import { SkillRunEvidencePanel } from "@/components/skill-run-evidence";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { cn } from "@/lib/utils";
 import { api } from "@/lib/api";
@@ -1010,6 +1011,12 @@ export default function SkillsPage() {
                   </div>
                 </div>
               </div>
+            </div>
+          )}
+
+          {selected && selected.path === null && selectedSkill && (
+            <div className="mt-5 max-w-5xl">
+              <SkillRunEvidencePanel key={selectedSkill.name} skill={selectedSkill.name} />
             </div>
           )}
 
