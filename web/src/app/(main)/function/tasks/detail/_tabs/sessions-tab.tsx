@@ -1,6 +1,7 @@
 "use client";
 
 import * as React from "react";
+import { useSearchParams } from "next/navigation";
 
 import {
   ArrowUpIcon,
@@ -480,6 +481,7 @@ function WorkerAssetBadge({ assets }: { assets: IntentAsset[] }) {
 
 export function SessionsTab({ taskId }: { taskId: string }) {
   const approvalFocus = useApprovalFocus({ taskId });
+  const requestedSession = useSearchParams().get("session");
   const [selectedSessionId, setActiveId] = React.useState(MAIN_ID);
   const focusSession = React.useMemo<Session | undefined>(() => {
     const source = approvalFocus.state?.source;
@@ -949,7 +951,7 @@ export function SessionsTab({ taskId }: { taskId: string }) {
         bootKey = mainSessionKey(ms.current);
         if (bootKey !== mainSessionKey(0)) loadingKeysRef.current.delete(mainSessionKey(0));
         loadingKeysRef.current.add(bootKey);
-        setActiveId(mainSessionId(ms.current));
+        setActiveId((current) => current === MAIN_ID ? mainSessionId(ms.current) : current);
         patchStore(bootKey, (s) => ({ ...s, loading: true }));
         return api.activityHistory(taskId, bootKey, 0, PAGE);
       })
@@ -1147,6 +1149,33 @@ export function SessionsTab({ taskId }: { taskId: string }) {
   }, [intentAssets]);
 
   const workerSessions = React.useMemo(() => allIntents.map(intentToSession), [allIntents]);
+  React.useEffect(() => {
+    if (!requestedSession) return;
+    if (requestedSession === "plan") {
+      setActiveId(PLANNER_ID);
+      return;
+    }
+    const matched = /^intent:([1-9]\d*)$/.exec(requestedSession);
+    const intentID = matched ? Number(matched[1]) : NaN;
+    if (!Number.isSafeInteger(intentID) || intentID >= Number.MAX_SAFE_INTEGER) return;
+    let alive = true;
+    // Fetch the exact historical intent even when it is outside the first page.
+    // Session history remains protected by the existing task ownership rules.
+    api.intentsPage(taskId, intentID + 1, 1).then((page) => {
+      if (!alive) return;
+      const intent = page.items.find((item) => item.id === String(intentID));
+      if (!intent) {
+        toast.error("该任务中找不到对应的执行上下文");
+        return;
+      }
+      const session = intentToSession(intent);
+      setLocatedSession({ taskId, session });
+      setActiveId(session.id);
+    }).catch((error) => {
+      if (alive) toast.error((error as Error).message || "无法读取执行上下文");
+    });
+    return () => { alive = false; };
+  }, [taskId, requestedSession]);
   const intentsHasMore = hasLoadedOlderIntentsPage ? olderIntentsHasMore : firstIntentsHasMore;
 
   // For each worker session (intent), derive the display title from the intent

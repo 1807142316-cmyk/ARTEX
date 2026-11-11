@@ -153,11 +153,13 @@ ORDER BY COUNT(*) DESC, skill`)
 
 // SkillCall is one row of a skill's recent-call list (detail panel).
 type SkillCall struct {
-	TS        time.Time `json:"ts"`
-	AgentKey  string    `json:"agent_key"`
-	TaskID    int64     `json:"task_id"`
-	SessionID string    `json:"session_id"`
-	ArgsLen   int       `json:"args_len"`
+	TS            time.Time `json:"ts"`
+	AgentKey      string    `json:"agent_key"`
+	TaskID        int64     `json:"task_id"`
+	ExplorationID int64     `json:"exploration_id"`
+	IntentID      int64     `json:"intent_id"`
+	SessionID     string    `json:"session_id"`
+	ArgsLen       int       `json:"args_len"`
 }
 
 // RecentSkillCalls returns the most recent invocations of one skill, newest first.
@@ -166,7 +168,7 @@ func (d *DB) RecentSkillCalls(skill string, limit int) ([]SkillCall, error) {
 		limit = 50
 	}
 	rows, err := d.Query(`
-SELECT ts, COALESCE(agent_key,''), COALESCE(task_id,0), COALESCE(session_id,''), args_len
+SELECT ts, COALESCE(agent_key,''), COALESCE(task_id,0), COALESCE(exploration_id,0), COALESCE(intent_id,0), COALESCE(session_id,''), args_len
 FROM skill_usage
 WHERE skill = $1 AND found
 ORDER BY ts DESC
@@ -178,7 +180,7 @@ LIMIT $2`, skill, limit)
 	out := []SkillCall{}
 	for rows.Next() {
 		var c SkillCall
-		if err := rows.Scan(&c.TS, &c.AgentKey, &c.TaskID, &c.SessionID, &c.ArgsLen); err != nil {
+		if err := rows.Scan(&c.TS, &c.AgentKey, &c.TaskID, &c.ExplorationID, &c.IntentID, &c.SessionID, &c.ArgsLen); err != nil {
 			return nil, err
 		}
 		out = append(out, c)
