@@ -35,7 +35,8 @@ basename and SHA-256, byte count, timestamps, exit code, outcome, and bounded st
 and stderr. Directory identity hashes sorted relative file paths, sizes and file
 digests; symlinks are skipped. Inputs are hashed before and after execution. A
 change produces `input_changed`, including deletion or unreadability after the
-run. Input hashing permits at most 1 GiB and 10,000 files.
+run. Input hashing permits at most 1 GiB, 10,000 files and 50,000 visited directory
+entries. Traversal stops at these limits before sorting collected file paths.
 
 The script timeout defaults to 60 seconds and is configurable from 1 to 120 seconds
 with `--timeout`. Each output stream is limited to 64 KiB. An excess terminates

@@ -12,6 +12,16 @@ RUNNER = ROOT / "scripts" / "skills" / "run_workflow.py"
 
 
 class SkillRunEvidenceCommandTests(unittest.TestCase):
+    def test_oversized_input_tree_is_rejected_before_workflow_execution(self):
+        with tempfile.TemporaryDirectory() as directory:
+            source = Path(directory)
+            for index in range(10001):
+                (source / str(index)).touch()
+            result = subprocess.run([sys.executable, str(RUNNER), "evidence-inventory", str(source)], capture_output=True, text=True, encoding="utf-8")
+            self.assertEqual(result.returncode, 2, result.stderr)
+            self.assertEqual(result.stdout, "")
+            self.assertIn("10000 files", json.loads(result.stderr)["error"])
+
     def test_directory_evidence_and_output_limit_come_from_fixed_workflows(self):
         with tempfile.TemporaryDirectory() as directory:
             source = Path(directory) / "evidence"
