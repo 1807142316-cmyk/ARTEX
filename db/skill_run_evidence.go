@@ -34,6 +34,28 @@ type SkillRunEvidence struct {
 	ReceivedAt         time.Time `json:"received_at"`
 }
 
+// PostgreSQL jsonb cannot store NUL characters. Keep the public UTF-8 streams as
+// base64 byte fields at rest so bounded process output survives losslessly.
+type storedSkillRunEvidence struct {
+	SkillRunEvidence
+	StdoutBytes []byte `json:"stdout_bytes"`
+	StderrBytes []byte `json:"stderr_bytes"`
+}
+
+func decodeSkillRunEvidence(raw []byte) (SkillRunEvidence, error) {
+	var stored storedSkillRunEvidence
+	if err := json.Unmarshal(raw, &stored); err != nil {
+		return SkillRunEvidence{}, err
+	}
+	if stored.StdoutBytes != nil {
+		stored.Stdout = string(stored.StdoutBytes)
+	}
+	if stored.StderrBytes != nil {
+		stored.Stderr = string(stored.StderrBytes)
+	}
+	return stored.SkillRunEvidence, nil
+}
+
 func (d *DB) SaveSkillRun(ctx context.Context, evidence SkillRunEvidence, hash string) (SkillRunEvidence, bool, error) {
 	tx, err := d.BeginTx(ctx, nil)
 	if err != nil {
@@ -53,7 +75,8 @@ func (d *DB) SaveSkillRun(ctx context.Context, evidence SkillRunEvidence, hash s
 		if previousHash != hash {
 			return evidence, false, ErrSkillRunConflict
 		}
-		if err := json.Unmarshal(previousRaw, &evidence); err != nil {
+		evidence, err = decodeSkillRunEvidence(previousRaw)
+		if err != nil {
 			return evidence, false, err
 		}
 		evidence.ID, evidence.TaskID, evidence.ReceivedAt = previousID, previousTask, previousReceived
@@ -70,7 +93,9 @@ func (d *DB) SaveSkillRun(ctx context.Context, evidence SkillRunEvidence, hash s
 			return evidence, false, err
 		}
 	}
-	raw, err := json.Marshal(evidence)
+	stored := storedSkillRunEvidence{SkillRunEvidence: evidence, StdoutBytes: []byte(evidence.Stdout), StderrBytes: []byte(evidence.Stderr)}
+	stored.Stdout, stored.Stderr = "", ""
+	raw, err := json.Marshal(stored)
 	if err != nil {
 		return evidence, false, err
 	}
@@ -100,7 +125,7 @@ func (d *DB) SkillRun(ctx context.Context, id int64) (SkillRunEvidence, error) {
 	if err != nil {
 		return r, err
 	}
-	if err = json.Unmarshal(raw, &r); err != nil {
+	if r, err = decodeSkillRunEvidence(raw); err != nil {
 		return r, err
 	}
 	r.ID, r.TaskID, r.ReceivedAt = id, task, received
@@ -111,7 +136,7 @@ func (d *DB) SkillRuns(ctx context.Context, skill string, page, limit int) ([]Sk
 	if err := d.QueryRowContext(ctx, `SELECT count(*) FROM skill_run_evidence WHERE ($1='' OR skill=$1)`, skill).Scan(&count); err != nil {
 		return nil, 0, err
 	}
-	rows, err := d.QueryContext(ctx, `SELECT id,evidence-'stdout'-'stderr',task_id,received_at FROM skill_run_evidence WHERE ($1='' OR skill=$1) ORDER BY id DESC LIMIT $2 OFFSET $3`, skill, limit, (page-1)*limit)
+	rows, err := d.QueryContext(ctx, `SELECT id,evidence-'stdout'-'stderr'-'stdout_bytes'-'stderr_bytes',task_id,received_at FROM skill_run_evidence WHERE ($1='' OR skill=$1) ORDER BY id DESC LIMIT $2 OFFSET $3`, skill, limit, (page-1)*limit)
 	if err != nil {
 		return nil, 0, err
 	}
@@ -126,7 +151,7 @@ func (d *DB) SkillRuns(ctx context.Context, skill string, page, limit int) ([]Sk
 		if err = rows.Scan(&id, &raw, &task, &received); err != nil {
 			return nil, 0, err
 		}
-		if err = json.Unmarshal(raw, &r); err != nil {
+		if r, err = decodeSkillRunEvidence(raw); err != nil {
 			return nil, 0, err
 		}
 		r.ID, r.TaskID, r.ReceivedAt = id, task, received

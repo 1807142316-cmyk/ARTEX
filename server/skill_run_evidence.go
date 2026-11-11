@@ -113,7 +113,8 @@ func (s *Server) registerSkillRuns(mux *http.ServeMux) {
 	mux.HandleFunc("GET /api/skill-runs/{id}", s.getSkillRun)
 }
 func (s *Server) reportSkillRun(w http.ResponseWriter, r *http.Request) {
-	r.Body = http.MaxBytesReader(w, r.Body, 256<<10)
+	// JSON escaping can expand both bounded output streams to six bytes per byte.
+	r.Body = http.MaxBytesReader(w, r.Body, 1<<20)
 	dec := json.NewDecoder(r.Body)
 	dec.DisallowUnknownFields()
 	var in db.SkillRunEvidence
