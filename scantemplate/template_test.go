@@ -101,3 +101,25 @@ http: [{method: GET, path: ["{{BaseURL}}/"]}]
 		})
 	}
 }
+
+func TestValidateRejectsInvalidContentMatcherAndExtractorSyntax(t *testing.T) {
+	for name, check := range map[string]string{
+		"invalid regex":        `matchers: [{type: regex, regex: ['[']}]`,
+		"dynamic word":         `matchers: [{type: word, words: ['{{randstr}}']}]`,
+		"invalid part":         `matchers: [{type: word, part: request, words: [nginx]}]`,
+		"invalid condition":    `matchers: [{type: word, condition: xor, words: [nginx]}]`,
+		"invalid negative":     `matchers: [{type: word, negative: yes, words: [nginx]}]`,
+		"invalid matcher name": `matchers: [{type: word, name: [nginx], words: [nginx]}]`,
+		"invalid extraction group": `matchers: [{type: status, status: [200]}]
+    extractors: [{type: regex, regex: ['nginx/[0-9.]+'], group: 1}]`,
+		"invalid extractor type": `matchers: [{type: status, status: [200]}]
+    extractors: [{type: dsl, dsl: [body]}]`,
+	} {
+		t.Run(name, func(t *testing.T) {
+			input := "id: invalid-content\ninfo: {name: Invalid content, severity: info}\nhttp:\n  - method: GET\n    path: ['{{BaseURL}}']\n    " + check + "\n"
+			if _, err := Validate([]byte(input)); err == nil {
+				t.Fatal("invalid matcher/extractor was accepted")
+			}
+		})
+	}
+}

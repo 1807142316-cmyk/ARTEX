@@ -1,0 +1,67 @@
+{
+    "name":  "projectdiscovery-http-identification",
+    "repository":  "https://github.com/projectdiscovery/nuclei-templates",
+    "version":  "13f9bc679405927b7f78eb5dfd3e7260ed3d40f3",
+    "engine_version":  "3.4.10",
+    "license":  "MIT",
+    "license_file":  "LICENSE.md",
+    "license_sha256":  "5fa6644d2dd1987a79c06f4af210d2cf8cfc4ee799999029d0f9980c9cf95a2c",
+    "acquired_at":  "2026-11-11T14:48:00+08:00",
+    "entries":  [
+                    {
+                        "file":  "apache-detect.yaml",
+                        "upstream_path":  "http/technologies/apache/apache-detect.yaml",
+                        "sha256":  "2b15aaf0e02234242b44a86684fa38aa7bb68cb01d88b41de5f78cc971a8cdd3"
+                    },
+                    {
+                        "file":  "nginx-version.yaml",
+                        "upstream_path":  "http/technologies/nginx/nginx-version.yaml",
+                        "sha256":  "aa410fb8361f2109ac247b16419040cc2cce1e3d9c76f0a51593806e7c1b7cd7"
+                    },
+                    {
+                        "file":  "default-nginx-page.yaml",
+                        "upstream_path":  "http/technologies/nginx/default-nginx-page.yaml",
+                        "sha256":  "35a39e681f7dd41ddfb06712ec207adb18d676e0c4d2a3d83c3fbdab103c2c2d"
+                    },
+                    {
+                        "file":  "default-django-page.yaml",
+                        "upstream_path":  "http/technologies/default-django-page.yaml",
+                        "sha256":  "71a1dbf23b463fa6ee36424d5be50f5798346ee283cffb294c47d1c891c86a3b"
+                    },
+                    {
+                        "file":  "express-default-page.yaml",
+                        "upstream_path":  "http/technologies/express-default-page.yaml",
+                        "sha256":  "952c5a59980e6cce9eed6c3eec6f0cc12a58be3e108d765bbe379ae48d63dd27"
+                    },
+                    {
+                        "file":  "default-apache2-page.yaml",
+                        "upstream_path":  "http/technologies/apache/default-apache2-page.yaml",
+                        "sha256":  "af24880067272fdced5bb5c6b9f920920b210850540d666321e34cc703217eee"
+                    },
+                    {
+                        "file":  "default-apache2-ubuntu-page.yaml",
+                        "upstream_path":  "http/technologies/apache/default-apache2-ubuntu-page.yaml",
+                        "sha256":  "80846143877518f680f749eea915df475d77cd43b537261a32b76a91cf0e68e0"
+                    },
+                    {
+                        "file":  "xampp-default-page.yaml",
+                        "upstream_path":  "http/technologies/apache/xampp-default-page.yaml",
+                        "sha256":  "7d36f00dd0ceaa35cb7304ad185c20d6b8da39047c09dc62133e9e14ed53298c"
+                    },
+                    {
+                        "file":  "angular-detect.yaml",
+                        "upstream_path":  "http/technologies/angular-detect.yaml",
+                        "sha256":  "b6b5055c126be000b3475e765f820cdc5b5402126e8063e6e2f32bb7b3109f0d"
+                    },
+                    {
+                        "file":  "basic-auth-detect.yaml",
+                        "upstream_path":  "http/technologies/basic-auth-detect.yaml",
+                        "sha256":  "f3ba79a2e0d79f7c43303a9f1248bda52ebda725455bc88479b78009ee98826d"
+                    },
+                    {
+                        "file":  "amazon-ec2-detect.yaml",
+                        "upstream_path":  "http/technologies/aws/amazon-ec2-detect.yaml",
+                        "sha256":  "92f3239ac8937e47aec78b0f03331ee32a7f70c82262843c8fdc646e5cbcb407"
+                    }
+                ]
+}

@@ -156,7 +156,7 @@ func (d *DB) FinishScanTemplateRun(ctx context.Context, run ScanTemplateRun, mat
 		if !matches[i].Matched || runErr != nil {
 			continue
 		}
-		evidence, _ := json.Marshal(map[string]any{"scan_run_id": run.ID, "template_id": run.TemplateID, "template_hash": run.TemplateHash, "engine_version": run.EngineVersion, "url": matches[i].URL, "request": matches[i].Request, "response": matches[i].Response})
+		evidence, _ := json.Marshal(map[string]any{"scan_run_id": run.ID, "template_id": run.TemplateID, "template_hash": run.TemplateHash, "engine_version": run.EngineVersion, "url": matches[i].URL, "request": matches[i].Request, "response": matches[i].Response, "extracted": matches[i].Extracted})
 		severity := metadata.Severity
 		if severity == "info" || severity == "unknown" {
 			severity = "low"

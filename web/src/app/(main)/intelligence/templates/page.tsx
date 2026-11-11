@@ -150,7 +150,8 @@ export default function ScanTemplatesPage() {
       <div>
         <h1 className="font-semibold text-xl tracking-tight">扫描模板</h1>
         <p className="text-muted-foreground text-sm">
-          静态 HTTP GET 与状态码检查，由固定版本 Nuclei 执行。命中会进入待审发现，并保留执行版本与请求响应。
+          静态 HTTP GET 的状态码、关键词和正则检查，由固定版本 Nuclei
+          执行。命中会进入待审发现，并保留提取值、版本与请求响应。
         </p>
       </div>
       <Card>
@@ -250,7 +251,7 @@ export default function ScanTemplatesPage() {
                     ))}
                   </div>
                   <div className="flex items-center gap-1 text-muted-foreground text-xs">
-                    <ShieldCheckIcon className="size-3.5" /> 被动 HTTP GET · {template.license} ·{" "}
+                    <ShieldCheckIcon className="size-3.5" /> HTTP GET · {template.license} ·{" "}
                     {template.source_version || "项目内容"}
                   </div>
                   <p className="break-all font-mono text-[11px] text-muted-foreground">
@@ -364,6 +365,9 @@ export default function ScanTemplatesPage() {
                   <p className="break-all">
                     {match.matched ? "命中，需独立核验" : "未命中"} · {match.url}
                   </p>
+                  {match.extracted && match.extracted.length > 0 && (
+                    <p className="break-all text-xs">提取值：{match.extracted.join(" · ")}</p>
+                  )}
                   {match.finding_id && (
                     <a className="underline" href={`/function/findings/detail?id=${match.finding_id}`}>
                       候选发现 #{match.finding_id}（待审）
@@ -390,7 +394,9 @@ export default function ScanTemplatesPage() {
       <Card>
         <CardHeader>
           <CardTitle>导入模板</CardTitle>
-          <CardDescription>支持静态路径的 HTTP GET 与状态码匹配；更新同一模板时保留旧内容版本。</CardDescription>
+          <CardDescription>
+            支持静态 HTTP GET、正文/响应头关键词及正则、状态码和 regex/kval 提取；更新时保留旧版本。
+          </CardDescription>
         </CardHeader>
         <CardContent>
           <form className="space-y-3" onSubmit={importTemplate}>

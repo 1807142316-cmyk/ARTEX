@@ -2,6 +2,7 @@ package db
 
 import (
 	"context"
+	"database/sql"
 	"embed"
 	"encoding/json"
 	"math"
@@ -27,7 +28,11 @@ func (d *DB) SeedScanTemplates(ctx context.Context) error {
 			return err
 		}
 	}
-	return nil
+	_, official, err := scantemplate.OfficialBundle()
+	if err != nil {
+		return err
+	}
+	return d.ImportScanTemplateBundle(ctx, official, true)
 }
 
 func (d *DB) seedScanTemplate(ctx context.Context, content string) error {
@@ -72,20 +77,27 @@ type ScanTemplatePage struct {
 }
 
 func (d *DB) SaveScanTemplate(ctx context.Context, template ScanTemplate) error {
-	tags, _ := json.Marshal(template.Tags)
-	refs, _ := json.Marshal(template.References)
 	tx, err := d.BeginTx(ctx, nil)
 	if err != nil {
 		return err
 	}
 	defer tx.Rollback()
+	if err := saveScanTemplateTx(ctx, tx, template); err != nil {
+		return err
+	}
+	return tx.Commit()
+}
+
+func saveScanTemplateTx(ctx context.Context, tx *sql.Tx, template ScanTemplate) error {
+	tags, _ := json.Marshal(template.Tags)
+	refs, _ := json.Marshal(template.References)
 	if _, err := tx.ExecContext(ctx, `SELECT pg_advisory_xact_lock(hashtextextended($1,0))`, "scan-template:"+template.ID); err != nil {
 		return err
 	}
 	if _, err := tx.ExecContext(ctx, `UPDATE scan_templates SET active=false WHERE template_id=$1 AND active AND content_hash<>$2`, template.ID, template.ContentHash); err != nil {
 		return err
 	}
-	_, err = tx.ExecContext(ctx, `INSERT INTO scan_templates
+	_, err := tx.ExecContext(ctx, `INSERT INTO scan_templates
 		(template_id,name,author,severity,description,tags,reference_urls,protocol,source_url,source_version,license,content_hash,content)
 		VALUES ($1,$2,$3,$4,$5,$6::jsonb,$7::jsonb,$8,$9,$10,$11,$12,$13)
 		ON CONFLICT (template_id,content_hash) DO UPDATE SET name=EXCLUDED.name,author=EXCLUDED.author,severity=EXCLUDED.severity,
@@ -96,6 +108,34 @@ func (d *DB) SaveScanTemplate(ctx context.Context, template ScanTemplate) error 
 		template.Protocol, template.SourceURL, template.SourceVersion, template.License, template.ContentHash, template.Content)
 	if err != nil {
 		return err
+	}
+	return nil
+}
+
+func (d *DB) ImportScanTemplateBundle(ctx context.Context, templates []scantemplate.BundledTemplate, onlyMissing bool) error {
+	tx, err := d.BeginTx(ctx, nil)
+	if err != nil {
+		return err
+	}
+	defer tx.Rollback()
+	for _, template := range templates {
+		m := template.Metadata
+		if onlyMissing {
+			if _, err = tx.ExecContext(ctx, `SELECT pg_advisory_xact_lock(hashtextextended($1,0))`, "scan-template:"+m.ID); err != nil {
+				return err
+			}
+			var exists bool
+			if err = tx.QueryRowContext(ctx, `SELECT EXISTS(SELECT 1 FROM scan_templates WHERE template_id=$1)`, m.ID).Scan(&exists); err != nil {
+				return err
+			}
+			if exists {
+				continue
+			}
+		}
+		item := ScanTemplate{ID: m.ID, Name: m.Name, Author: m.Author, Severity: m.Severity, Description: m.Description, Tags: m.Tags, References: m.References, Protocol: m.Protocol, SourceURL: template.SourceURL, SourceVersion: template.SourceVersion, License: template.License, ContentHash: m.ContentHash, Content: template.Content}
+		if err = saveScanTemplateTx(ctx, tx, item); err != nil {
+			return err
+		}
 	}
 	return tx.Commit()
 }
