@@ -756,6 +756,7 @@ func (s *Server) Handler() http.Handler {
 	s.registerSessionInventory(mux)
 	s.registerSkillRuns(mux)
 	s.registerSessionTopology(mux)
+	s.registerIntranetContext(mux) // #10: task-scoped intranet context for the sessions/topology UI
 
 	// asset system
 	mux.HandleFunc("GET /api/assets", s.listAssets)
