@@ -120,6 +120,12 @@ func stubRun(ctx context.Context, argv []string, timeoutMS int) (string, int, bo
 	case "id":
 		return "uid=1000(artex)\n", 0, false
 	}
+	if argv[0] == "/bin/sh" && len(argv) == 3 && argv[2] == "id" {
+		return "uid=1000(artex)\n", 0, false
+	}
+	if argv[0] == "/bin/sh" && len(argv) == 3 && argv[2] == "exit 7" {
+		return "", 7, false
+	}
 	if argv[0] == "/bin/sh" && len(argv) == 3 && strings.HasPrefix(argv[2], "printf ") {
 		return strings.TrimPrefix(argv[2], "printf ") + "\n", 0, false
 	}
