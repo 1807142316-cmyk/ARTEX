@@ -16,6 +16,7 @@ import (
 	"strconv"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"time"
 	"unicode/utf8"
 
@@ -70,10 +71,13 @@ type connectionService struct {
 	s     *Server
 	mu    sync.Mutex
 	locks map[int64]*sync.Mutex
+	// heartbeatActive guards the background sweep against overlapping itself.
+	heartbeatActive atomic.Bool
 }
 
 func (s *Server) initConnections() {
 	s.connections = &connectionService{s: s, locks: map[int64]*sync.Mutex{}}
+	s.startConnectionHeartbeat()
 }
 
 func (c *connectionService) lock(adapterID int64) func() {
@@ -620,17 +624,43 @@ func (s *Server) syncConnectionAdapter(w http.ResponseWriter, r *http.Request) {
 		writeErr(w, 409, "adapter is disabled; enable it before syncing")
 		return
 	}
-	state, lastError := s.probeConnection(r.Context(), a)
-	if _, err = s.m.pg.SetConnectionAdapterState(r.Context(), a.ID, state, lastError); err != nil {
-		writeErr(w, 500, "record check result failed")
+	session, replayed, state, err := s.syncConnectionAdapterOnce(r.Context(), a)
+	if err != nil {
+		var syncErr *connectionSyncError
+		if errors.As(err, &syncErr) {
+			writeErr(w, syncErr.status, syncErr.message)
+			return
+		}
+		writeErr(w, 500, "inventory observation failed")
 		return
+	}
+	writeJSON(w, 200, map[string]any{"adapter": adapterView(a), "session": connectionSessionView(session, a), "replayed": replayed, "state": state})
+}
+
+// connectionSyncError is a sync failure with the HTTP status the endpoint
+// assigns it, so the sweep (which has no response writer) reuses the same code
+// path without inventing its own error vocabulary.
+type connectionSyncError struct {
+	status  int
+	message string
+}
+
+func (e *connectionSyncError) Error() string { return e.message }
+
+// syncConnectionAdapterOnce probes one adapter and writes the observation. It is
+// the single sync path: the manual endpoint and the background heartbeat sweep
+// both call it, so a sweep can never record a state the endpoint would not.
+// Callers serialize per adapter (connectionService.lock).
+func (s *Server) syncConnectionAdapterOnce(ctx context.Context, a *db.ConnectionAdapter) (db.InventorySession, bool, string, error) {
+	state, lastError := s.probeConnection(ctx, a)
+	if _, err := s.m.pg.SetConnectionAdapterState(ctx, a.ID, state, lastError); err != nil {
+		return db.InventorySession{}, false, state, &connectionSyncError{status: 500, message: "record check result failed"}
 	}
 	source := fmt.Sprintf("connection:%d", a.ID)
 	sourceID := connectionSourceID(a)
-	sequence, err := s.m.pg.NextInventorySequence(r.Context(), source, sourceID)
+	sequence, err := s.m.pg.NextInventorySequence(ctx, source, sourceID)
 	if err != nil {
-		writeErr(w, 500, "inventory sequence lookup failed")
-		return
+		return db.InventorySession{}, false, state, &connectionSyncError{status: 500, message: "inventory sequence lookup failed"}
 	}
 	observation := db.SessionObservation{
 		Source:              source,
@@ -652,21 +682,18 @@ func (s *Server) syncConnectionAdapter(w http.ResponseWriter, r *http.Request) {
 			observation.DisconnectReason += " (" + trimConnectionText(lastError, 300) + ")"
 		}
 	}
-	session, _, replayed, err := s.m.pg.ObserveSession(r.Context(), observation)
+	session, _, replayed, err := s.m.pg.ObserveSession(ctx, observation)
 	if err != nil {
-		if errors.Is(err, db.ErrInventoryConflict) {
-			writeErr(w, 409, "inventory observation conflicted with a concurrent sync")
-			return
+		switch {
+		case errors.Is(err, db.ErrInventoryConflict):
+			return db.InventorySession{}, false, state, &connectionSyncError{status: 409, message: "inventory observation conflicted with a concurrent sync"}
+		case errors.Is(err, db.ErrInventoryReference):
+			return db.InventorySession{}, false, state, &connectionSyncError{status: 400, message: "adapter task/asset association is no longer valid"}
 		}
-		if errors.Is(err, db.ErrInventoryReference) {
-			writeErr(w, 400, "adapter task/asset association is no longer valid")
-			return
-		}
-		writeErr(w, 500, "inventory observation failed")
-		return
+		return db.InventorySession{}, false, state, err
 	}
 	session.Mode = "adapter"
-	writeJSON(w, 200, map[string]any{"adapter": adapterView(a), "session": connectionSessionView(session, a), "replayed": replayed, "state": state})
+	return session, replayed, state, nil
 }
 
 // trimConnectionText clips text to at most max bytes without splitting a
