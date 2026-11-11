@@ -67,6 +67,35 @@ export interface ConnectionOperation {
   error: string;
   started_at: string;
   finished_at: string | null;
+  /** Inventory sequence the operation ran against. */
+  session_sequence: number | null;
+  /** "sha256:<hex>" over the stored output; empty when there is no output. */
+  output_ref: string;
+}
+
+/** Shape every paginated list endpoint returns. */
+export interface PageMeta {
+  page: number;
+  limit: number;
+  total: number;
+  truncated: boolean;
+}
+
+export interface AdapterList extends PageMeta {
+  items: ConnectionAdapter[];
+  capabilities: string[];
+  kinds: string[];
+}
+
+export interface SessionList extends PageMeta {
+  items: ConnectionSession[];
+  capabilities: string[];
+}
+
+export interface OperationList extends PageMeta {
+  items: ConnectionOperation[];
+  session: ConnectionSession;
+  capabilities: string[];
 }
 
 export interface AdapterInput {
@@ -97,8 +126,7 @@ const post = <T>(path: string, value?: unknown) =>
   });
 
 export const connectionsAPI = {
-  adapters: () =>
-    http<{ items: ConnectionAdapter[]; capabilities: string[]; kinds: string[] }>("/connections/adapters"),
+  adapters: () => http<AdapterList>("/connections/adapters"),
   adapter: (id: number) => http<ConnectionAdapter>(`/connections/adapters/${id}`),
   createAdapter: (input: AdapterInput) => post<ConnectionAdapter>("/adapters", input),
   updateAdapter: (id: number, input: AdapterInput) =>
@@ -109,12 +137,10 @@ export const connectionsAPI = {
     post<{ adapter: ConnectionAdapter; session: ConnectionSession; state: string; replayed: boolean }>(
       `/adapters/${id}/sync`,
     ),
-  sessions: (query = "") =>
-    http<{ items: ConnectionSession[]; capabilities: string[] }>(`/connections/sessions${query}`),
-  operations: (sessionId: number) =>
-    http<{ items: ConnectionOperation[]; session: ConnectionSession; capabilities: string[] }>(
-      `/connections/sessions/${sessionId}/operations`,
-    ),
+  sessions: (page = 1, limit = 20) =>
+    http<SessionList>(`/connections/sessions?page=${page}&limit=${limit}`),
+  operations: (sessionId: number, page = 1, limit = 20) =>
+    http<OperationList>(`/connections/sessions/${sessionId}/operations?page=${page}&limit=${limit}`),
   run: (sessionId: number, input: OperationInput) =>
     post<ConnectionOperation>(`/sessions/${sessionId}/operations`, input),
 };

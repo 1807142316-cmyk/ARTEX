@@ -22,6 +22,7 @@ import {
 } from "@/lib/connections";
 
 const selectClass = "border-input bg-background h-9 rounded-md border px-3 text-sm";
+const pageSize = 20;
 const formatTime = (value?: string | null) => (value ? new Date(value).toLocaleString() : "—");
 const errorText = (error: unknown) => (error instanceof Error ? error.message : "操作失败");
 
@@ -49,8 +50,14 @@ export default function C2WebShellPage() {
   const [adapters, setAdapters] = useState<ConnectionAdapter[]>([]);
   const [kinds, setKinds] = useState<string[]>(["http_phpcmd"]);
   const [sessions, setSessions] = useState<ConnectionSession[]>([]);
+  const [sessionPage, setSessionPage] = useState(1);
+  const [sessionTotal, setSessionTotal] = useState(0);
+  const [adapterTotal, setAdapterTotal] = useState(0);
+  const [adapterTruncated, setAdapterTruncated] = useState(false);
   const [selected, setSelected] = useState<ConnectionSession | null>(null);
   const [operations, setOperations] = useState<ConnectionOperation[]>([]);
+  const [operationPage, setOperationPage] = useState(1);
+  const [operationTotal, setOperationTotal] = useState(0);
   const [form, setForm] = useState<AdapterForm>(emptyForm);
   const [editing, setEditing] = useState<number | null>(null);
   const [action, setAction] = useState("exec");
@@ -63,11 +70,13 @@ export default function C2WebShellPage() {
   const requestSeq = useRef(0);
   const selectedID = useRef<number | null>(null);
 
-  const refreshOperations = useCallback(async (id: number) => {
+  const refreshOperations = useCallback(async (id: number, page: number) => {
     try {
-      const result = await connectionsAPI.operations(id);
+      const result = await connectionsAPI.operations(id, page, pageSize);
       if (selectedID.current !== id) return;
       setOperations(result.items);
+      setOperationTotal(result.total);
+      setOperationPage(result.page);
     } catch (err) {
       if (selectedID.current === id) setOperationError(errorText(err));
     }
@@ -78,16 +87,23 @@ export default function C2WebShellPage() {
     setLoading(true);
     setError("");
     try {
-      const [adapterList, sessionList] = await Promise.all([connectionsAPI.adapters(), connectionsAPI.sessions()]);
+      const [adapterList, sessionList] = await Promise.all([
+        connectionsAPI.adapters(),
+        connectionsAPI.sessions(sessionPage, pageSize),
+      ]);
       if (seq !== requestSeq.current) return;
       setAdapters(adapterList.items);
+      setAdapterTotal(adapterList.total);
+      setAdapterTruncated(adapterList.truncated);
       setKinds(adapterList.kinds.length ? adapterList.kinds : ["http_phpcmd"]);
       setSessions(sessionList.items);
+      setSessionTotal(sessionList.total);
+      setSessionPage(sessionList.page);
       const current = selectedID.current;
       if (current !== null) {
         const latest = sessionList.items.find((item) => item.id === current) ?? null;
         setSelected(latest);
-        if (latest) void refreshOperations(latest.id);
+        if (latest) void refreshOperations(latest.id, operationPage);
         else selectedID.current = null;
       }
     } catch (err) {
@@ -95,7 +111,7 @@ export default function C2WebShellPage() {
     } finally {
       if (seq === requestSeq.current) setLoading(false);
     }
-  }, [refreshOperations]);
+  }, [refreshOperations, sessionPage, operationPage]);
 
   useEffect(() => {
     void load();
@@ -158,7 +174,7 @@ export default function C2WebShellPage() {
       await actionRun();
       toast.success(message);
       await load();
-      if (selectedID.current !== null) await refreshOperations(selectedID.current);
+      if (selectedID.current !== null) await refreshOperations(selectedID.current, operationPage);
     } catch (err) {
       setError(errorText(err));
     } finally {
@@ -170,8 +186,10 @@ export default function C2WebShellPage() {
     selectedID.current = session.id;
     setSelected(session);
     setOperations([]);
+    setOperationTotal(0);
+    setOperationPage(1);
     setOperationError("");
-    void refreshOperations(session.id);
+    void refreshOperations(session.id, 1);
   };
 
   const execute = async () => {
@@ -192,7 +210,7 @@ export default function C2WebShellPage() {
     } finally {
       // A rejected capability or a refused session still produces a record, so
       // refresh regardless of whether the request itself threw.
-      await refreshOperations(selected.id);
+      await refreshOperations(selected.id, operationPage);
       setBusy(false);
     }
   };
@@ -351,8 +369,11 @@ export default function C2WebShellPage() {
       </Card>
 
       <Card>
-        <CardHeader>
+        <CardHeader className="flex flex-wrap items-center justify-between gap-3">
           <CardTitle>适配器</CardTitle>
+          <span className="text-muted-foreground text-sm">
+            共 {adapterTotal} 个{adapterTruncated ? "（仅显示前 200 个）" : ""}
+          </span>
         </CardHeader>
         <CardContent className="overflow-x-auto">
           <table className="w-full text-left text-sm">
@@ -447,8 +468,15 @@ export default function C2WebShellPage() {
       </Card>
 
       <Card>
-        <CardHeader>
+        <CardHeader className="flex flex-wrap items-center justify-between gap-3">
           <CardTitle>会话</CardTitle>
+          <Pager
+            page={sessionPage}
+            limit={pageSize}
+            total={sessionTotal}
+            busy={loading}
+            onPage={setSessionPage}
+          />
         </CardHeader>
         <CardContent className="overflow-x-auto">
           <table className="w-full text-left text-sm">
@@ -566,7 +594,11 @@ export default function C2WebShellPage() {
                 >
                   执行并记录
                 </Button>
-                <Button variant="outline" disabled={busy} onClick={() => void refreshOperations(selected.id)}>
+                <Button
+                  variant="outline"
+                  disabled={busy}
+                  onClick={() => void refreshOperations(selected.id, operationPage)}
+                >
                   刷新记录
                 </Button>
                 {unsupportedAction && (
@@ -581,6 +613,21 @@ export default function C2WebShellPage() {
                   {operationError}
                 </p>
               )}
+              <div className="flex flex-wrap items-center justify-between gap-2">
+                <span className="text-muted-foreground text-sm">
+                  共 {operationTotal} 条记录
+                </span>
+                <Pager
+                  page={operationPage}
+                  limit={pageSize}
+                  total={operationTotal}
+                  busy={busy}
+                  onPage={(page) => {
+                    setOperationPage(page);
+                    void refreshOperations(selected.id, page);
+                  }}
+                />
+              </div>
               <div className="overflow-x-auto rounded-lg border">
                 <table className="w-full text-left text-sm">
                   <thead className="bg-muted/40">
@@ -638,6 +685,37 @@ export default function C2WebShellPage() {
           )}
         </CardContent>
       </Card>
+    </div>
+  );
+}
+
+// Pager is the shared prev/next control for the two paginated lists. It renders
+// the server's total rather than guessing from the current page length.
+function Pager({
+  page,
+  limit,
+  total,
+  busy,
+  onPage,
+}: {
+  page: number;
+  limit: number;
+  total: number;
+  busy: boolean;
+  onPage: (page: number) => void;
+}) {
+  const pages = Math.max(1, Math.ceil(total / limit));
+  return (
+    <div className="flex items-center gap-2 text-sm">
+      <span className="text-muted-foreground">
+        共 {total} 条 · 第 {page} / {pages} 页
+      </span>
+      <Button size="sm" variant="outline" disabled={busy || page <= 1} onClick={() => onPage(page - 1)}>
+        上一页
+      </Button>
+      <Button size="sm" variant="outline" disabled={busy || page >= pages} onClick={() => onPage(page + 1)}>
+        下一页
+      </Button>
     </div>
   );
 }
