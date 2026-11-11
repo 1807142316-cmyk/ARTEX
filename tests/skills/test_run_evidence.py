@@ -12,6 +12,20 @@ RUNNER = ROOT / "scripts" / "skills" / "run_workflow.py"
 
 
 class SkillRunEvidenceCommandTests(unittest.TestCase):
+    def test_extra_module_cannot_shadow_standard_library_imports(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory) / "skills"
+            shutil.copytree(ROOT / "skills/saved-header-review", root / "saved-header-review")
+            marker = Path(directory) / "imported.txt"
+            extra = root / "saved-header-review/scripts/argparse.py"
+            extra.write_text("from pathlib import Path\nPath(" + repr(str(marker)) + ").write_text('imported')\n", encoding="utf-8")
+            source = Path(directory) / "headers.json"
+            source.write_text('{"url":"https://service.test/","headers":{}}', encoding="utf-8")
+            result = subprocess.run([sys.executable, str(RUNNER), "saved-header-review", str(source), "--skills-dir", str(root)], capture_output=True, text=True, encoding="utf-8")
+            self.assertFalse(marker.exists(), "extra module executed in a hash-verified package")
+            self.assertEqual(result.returncode, 0, result.stderr)
+            self.assertEqual(json.loads(result.stdout)["outcome"], "succeeded")
+
     def test_oversized_input_tree_is_rejected_before_workflow_execution(self):
         with tempfile.TemporaryDirectory() as directory:
             source = Path(directory)

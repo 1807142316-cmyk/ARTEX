@@ -113,6 +113,34 @@ func TestSkillRunEvidenceIsAuthenticatedImmutableAndSeparateFromLoads(t *testing
 	if w := request("POST", "/api/skill-runs", payload, true); w.Code != 400 {
 		t.Fatalf("bad package accepted=%d %s", w.Code, w.Body)
 	}
+	payload["client_run_id"] = "escaped-output-" + strconv.FormatInt(time.Now().UnixNano(), 10)
+	payload["script_sha256"] = hash("scripts/run.py")
+	payload["stdout"] = strings.Repeat("\x00", 64<<10)
+	payload["stderr"] = strings.Repeat("\x01", 64<<10)
+	w = request("POST", "/api/skill-runs", payload, true)
+	if w.Code != 201 {
+		t.Fatalf("bounded escaped output=%d %s", w.Code, w.Body)
+	}
+	var escaped struct {
+		ID int64 `json:"id"`
+	}
+	if err := json.Unmarshal(w.Body.Bytes(), &escaped); err != nil {
+		t.Fatal(err)
+	}
+	w = request("GET", "/api/skill-runs/"+strconv.FormatInt(escaped.ID, 10), nil, true)
+	var roundtrip struct {
+		Stdout string `json:"stdout"`
+		Stderr string `json:"stderr"`
+	}
+	if err := json.Unmarshal(w.Body.Bytes(), &roundtrip); err != nil {
+		t.Fatal(err)
+	}
+	if w.Code != 200 || roundtrip.Stdout != payload["stdout"] || roundtrip.Stderr != payload["stderr"] {
+		t.Fatalf("escaped output did not roundtrip=%d", w.Code)
+	}
+	if w := request("POST", "/api/skill-runs", payload, true); w.Code != 200 {
+		t.Fatalf("escaped output retry=%d %s", w.Code, w.Body)
+	}
 	afterLoads := request("GET", "/api/skills/saved-header-review/usage", nil, true)
 	if beforeLoads.Code != 200 || afterLoads.Code != 200 || !bytes.Equal(beforeLoads.Body.Bytes(), afterLoads.Body.Bytes()) {
 		t.Fatalf("execution reports changed Skill loads: before=%d %s after=%d %s", beforeLoads.Code, beforeLoads.Body, afterLoads.Code, afterLoads.Body)
@@ -135,7 +163,8 @@ func TestSkillRunEvidenceSurvivesTaskDeletionAndServerRestart(t *testing.T) {
 		t.Fatal(err)
 	}
 	dataDir := t.TempDir()
-	s := New(ctx, m, root, dataDir, t.TempDir())
+	keyDir := t.TempDir()
+	s := New(ctx, m, root, dataDir, keyDir)
 	token, err := signJWT(s.jwtKey)
 	if err != nil {
 		t.Fatal(err)
@@ -193,11 +222,7 @@ func TestSkillRunEvidenceSurvivesTaskDeletionAndServerRestart(t *testing.T) {
 		t.Fatalf("delete task=%d %s", w.Code, w.Body)
 	}
 	// Recreate the HTTP application against the same PostgreSQL storage and JWT key.
-	s = New(ctx, m, root, dataDir, t.TempDir())
-	token, err = signJWT(s.jwtKey)
-	if err != nil {
-		t.Fatal(err)
-	}
+	s = New(ctx, m, root, dataDir, keyDir)
 	w = request("GET", "/api/skill-runs/"+strconv.FormatInt(created.ID, 10), nil)
 	var retained struct {
 		Stdout string `json:"stdout"`

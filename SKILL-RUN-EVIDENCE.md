@@ -28,7 +28,13 @@ Submission requires HTTPS, with HTTP allowed for loopback development. Redirects
 are rejected. `--skills-dir` can point to a local content directory, but expected
 package hashes still come from the manifest distributed beside the runner; an
 alternative directory cannot supply its own expected hashes. Each run verifies
-both `SKILL.md` and `scripts/run.py` before starting the fixed script.
+both `SKILL.md` and `scripts/run.py`, then executes the verified script bytes from
+a private temporary directory. Later changes to the content directory do not
+change the code executed for that run.
+The script runs in Python isolated mode (`-I`), which excludes its directory,
+the current working directory, user site packages and `PYTHONPATH` from import
+resolution. Additional files beside the verified script cannot shadow its
+standard-library imports.
 
 The report contains a unique client run ID, package version and hashes, input
 basename and SHA-256, byte count, timestamps, exit code, outcome, and bounded stdout

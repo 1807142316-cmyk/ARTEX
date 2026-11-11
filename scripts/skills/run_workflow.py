@@ -9,6 +9,7 @@ import os
 from pathlib import Path
 import subprocess
 import sys
+import tempfile
 import threading
 from urllib.error import HTTPError, URLError
 from urllib.parse import urlsplit
@@ -90,6 +91,7 @@ def package_identity(root, name):
         raise ValueError("workflow is absent or duplicated in content manifest")
     package = packages[0]
     hashes = {}
+    script = None
     for relative in ("SKILL.md", "scripts/run.py"):
         records = [item for item in package["files"] if item["path"] == relative]
         if len(records) != 1:
@@ -97,12 +99,18 @@ def package_identity(root, name):
         path = root / name / relative
         if path.is_symlink() or not path.resolve().is_relative_to(root.resolve()):
             raise ValueError("workflow resource path escapes content root")
-        size, digest = sha_file(path, 1024 * 1024)
+        with path.open("rb") as stream:
+            content = stream.read(1024 * 1024 + 1)
+        size, digest = len(content), hashlib.sha256(content).hexdigest()
+        if size > 1024 * 1024:
+            raise ValueError("workflow resource exceeds size limit")
         record = records[0]
         if size != record["bytes"] or digest != record["sha256"]:
             raise ValueError("workflow resource hash differs from content manifest")
         hashes[relative] = digest
-    return package["version"], hashes
+        if relative == "scripts/run.py":
+            script = content
+    return package["version"], hashes, script
 
 
 def run_bounded(command, timeout):
@@ -176,11 +184,15 @@ def main():
         token = os.environ.get("ARTEX_SKILL_RUN_TOKEN", "").strip()
         if origin and not token:
             raise ValueError("ARTEX_SKILL_RUN_TOKEN is required for submission")
-        version, hashes = package_identity(args.skills_dir, args.skill)
+        version, hashes, script = package_identity(args.skills_dir, args.skill)
         source = args.input.absolute()
         identity = input_identity(source)
         started = datetime.now(timezone.utc).isoformat()
-        result = run_bounded([sys.executable, str((args.skills_dir / args.skill / "scripts/run.py").absolute()), str(source)], args.timeout)
+        # Execute the exact verified bytes, independent of subsequent content-directory edits.
+        with tempfile.TemporaryDirectory(prefix="artex-skill-run-") as directory:
+            executable = Path(directory) / "run.py"
+            executable.write_bytes(script)
+            result = run_bounded([sys.executable, "-I", str(executable), str(source)], args.timeout)
         outcome, code, truncated, stdout, stderr = result
         finished = datetime.now(timezone.utc).isoformat()
         try:
@@ -197,7 +209,10 @@ def main():
         if origin:
             request = Request(origin + "/api/skill-runs", data=json.dumps(report).encode("utf-8"), headers={"Content-Type": "application/json", "Authorization": "Bearer " + token}, method="POST")
             with build_opener(NoRedirect()).open(request, timeout=15) as response:
-                submitted = json.loads(response.read(256 * 1024 + 1))
+                response_body = response.read(1024 * 1024 + 1)
+                if len(response_body) > 1024 * 1024:
+                    raise ValueError("submission response exceeds size limit")
+                submitted = json.loads(response_body)
             print(json.dumps({"submitted_id": submitted["id"], "attestation": submitted["attestation"]}), file=sys.stderr)
         return 0 if outcome == "succeeded" else 1
     except (OSError, ValueError, TypeError, KeyError, HTTPError, URLError) as error:
