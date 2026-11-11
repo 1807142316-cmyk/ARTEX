@@ -162,3 +162,24 @@ legacy keys, and refresh open session details with polling. Eight focused HTTP
 tests and five startup subcases passed against independent Windows PostgreSQL;
 TypeScript and Biome passed. These fixes are later than the Linux artifacts
 above and are not represented as part of their Linux evidence.
+
+## Linux resource scope acceptance
+
+The opt-in authenticated HTTP test `TestLinuxMetricsMatchRuntimeScope` ran as an
+ordinary Linux process, then inside a container launched with `--network none
+--memory 128m --cpus 0.5`. It uses no database or model. Both runs passed on
+2026-11-11. The first response left CPU percent unset; a later response after a
+bounded local CPU/memory workload reported a measured interval and positive CPU
+usage. Process scope reported two cores and no host memory limit; container scope
+reported cgroup v2, exactly 0.5 cores and 134,217,728 bytes, matching the separate
+Docker limits. Actual later samples were:
+
+| Scope | CPU percent | Window seconds | Memory bytes | Memory limit bytes |
+| --- | --- | --- | --- | --- |
+| process | 50.3864 | 0.6174 | 56,606,720 | null |
+| container | 94.6867 | 0.6849 | 35,504,128 | 134,217,728 |
+
+These are scope and configured-denominator checks under a local workload,
+not precision benchmarking or the complete application-container acceptance.
+Raw logs remain `metrics-process.log` and `metrics-container.log` in the isolated
+validation directory. The disposable metrics container exited and was removed.

@@ -6,7 +6,7 @@
 
 | Issue | 已交付与证据 | 剩余事项 |
 | --- | --- | --- |
-| #2 仪表盘 | 快速开始、阶段目标、现有设置继承、持久化幂等、真实统计、范围明确的资源接口；真实浏览器及 HTTP/PostgreSQL 验证 | Linux cgroup/进程指标数值对比属于父 spec 发布验收，尚未运行 |
+| #2 仪表盘 | 快速开始、阶段目标、现有设置继承、持久化幂等、真实统计、范围明确的资源接口；真实浏览器及 HTTP/PostgreSQL 验证；Linux 进程及 cgroup v2 限额口径验收通过 | 采样非精度基准；整套容器发布由父 spec 跟踪 |
 | #3 发现 | 严重性、检索、分页、展开及保留原详情操作；真实 HTTP/PostgreSQL 验证 | 原始截图无法从当前上下文重新取图做像素对照 |
 | #4 知识库 | 导入/去重/版本/审核/验证/发布/撤销、逻辑调用去重、`kb_search`/`kb_get`、六条实质草稿；候选来源分页、正文搜索开关、来源证据预览及解绑后 GC 保留；真实 HTTP/PostgreSQL 与浏览器闭环 | 已关闭；Linux 整体验收由父 spec 跟踪 |
 | #5 CVE | 官方全量421,793条在独立 Linux Compose PostgreSQL 实际导入；原库及恢复库认证 HTTP 检索、统计、原始记录、离线查询、备份恢复和重启检查通过 | Ticket 数据验收完成；整套应用镜像部署和升级仍由父 spec 跟踪 |
@@ -43,4 +43,4 @@ Spec：已修复缺增量包时游标提前推进、坏缓存阻止重试、CVE�
 
 ## Linux 交付边界
 
-新增 `Dockerfile.source` 和 `compose.source.yml` 从本分支源码构建，步骤见根目录 `DEPLOYMENT.md`。Ubuntu 服务器已用于独立 CVE、模板、技能、代理及密钥回归，见[Linux记录](screenshot-parity-linux-validation.md)。整套应用镜像冷启动/升级、Linux指标和 Linux Chromium 出口仍未验收。源码 Compose override 已新增私有 JWT/config 持久卷；首次升级旧容器必须先按文档保存并恢复原密钥。整套平台部署曾被自动审批拒绝（`blocked by policy`），未替换服务器原 ARTEX；数据及受限工作流验收不能代表平台发布完成。
+新增 `Dockerfile.source` 和 `compose.source.yml` 从本分支源码构建，步骤见根目录 `DEPLOYMENT.md`。Ubuntu 服务器已用于独立 CVE、模板、技能、代理、密钥回归及 Linux 指标口径验收，见[Linux记录](screenshot-parity-linux-validation.md)。整套应用镜像冷启动/升级和 Linux Chromium 出口仍未验收。源码 Compose override 已新增私有 JWT/config 持久卷；首次升级旧容器必须先按文档保存并恢复原密钥。整套平台部署曾被自动审批拒绝（`blocked by policy`），未替换服务器原 ARTEX；数据及受限工作流验收不能代表平台发布完成。
