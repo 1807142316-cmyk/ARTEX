@@ -2,6 +2,30 @@
   "format_version": 1,
   "packages": [
     {
+      "name": "binary-format-inspection",
+      "version": "artex-authored-1",
+      "license": "AGPL-3.0-only",
+      "authored_date": "2026-11-11",
+      "source_kind": "original-workflow-and-script",
+      "reference_urls": [
+        "https://gabi.xinuos.com/elf/02-eheader.html",
+        "https://gabi.xinuos.com/elf/03-sheader.html",
+        "https://learn.microsoft.com/en-us/windows/win32/debug/pe-format"
+      ],
+      "files": [
+        {
+          "path": "SKILL.md",
+          "bytes": 3121,
+          "sha256": "b46f4aae39ea1a23756ce85dc0c0dfd45ac6b2050e706cfb7d000fe0dc47972a"
+        },
+        {
+          "path": "scripts/run.py",
+          "bytes": 9757,
+          "sha256": "82ebe0cfd131d89b73e1034160cef9fea204d1200d833fedb7a80ec7c0532b92"
+        }
+      ]
+    },
+    {
       "name": "container-inspect-review",
       "version": "artex-authored-1",
       "license": "AGPL-3.0-only",

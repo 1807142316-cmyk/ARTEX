@@ -6,6 +6,7 @@ from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
 PACKAGES = {
+    "binary-format-inspection": ["https://gabi.xinuos.com/elf/02-eheader.html", "https://gabi.xinuos.com/elf/03-sheader.html", "https://learn.microsoft.com/en-us/windows/win32/debug/pe-format"],
     "saved-header-review": ["https://cheatsheetseries.owasp.org/cheatsheets/HTTP_Headers_Cheat_Sheet.html"],
     "evidence-inventory": ["https://docs.python.org/3/library/hashlib.html"],
     "cve-record-review": ["https://github.com/CVEProject/cvelistV5", "https://github.com/CVEProject/cve-schema"],
