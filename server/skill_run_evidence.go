@@ -42,16 +42,29 @@ type workflowManifest struct {
 	} `json:"packages"`
 }
 
+func readSkillRunPackageFile(path string) ([]byte, error) {
+	file, err := os.Open(path)
+	if err != nil {
+		return nil, err
+	}
+	defer file.Close()
+	raw, err := io.ReadAll(io.LimitReader(file, (1<<20)+1))
+	if err != nil {
+		return nil, err
+	}
+	if len(raw) > 1<<20 {
+		return nil, fmt.Errorf("installed workflow file exceeds limit")
+	}
+	return raw, nil
+}
+
 func (s *Server) validateReportedPackage(r db.SkillRunEvidence) error {
 	if !offlineWorkflowNames[r.Skill] {
 		return fmt.Errorf("workflow is not in the fixed offline catalog")
 	}
-	raw, err := os.ReadFile(filepath.Join(s.skillDir, "content-manifest.json"))
+	raw, err := readSkillRunPackageFile(filepath.Join(s.skillDir, "content-manifest.json"))
 	if err != nil {
 		return fmt.Errorf("installed content manifest unavailable")
-	}
-	if len(raw) > 1<<20 {
-		return fmt.Errorf("content manifest exceeds limit")
 	}
 	var m workflowManifest
 	if json.Unmarshal(raw, &m) != nil {
@@ -72,7 +85,7 @@ func (s *Server) validateReportedPackage(r db.SkillRunEvidence) error {
 			if f.Bytes < 1 || f.Bytes > 1<<20 {
 				return fmt.Errorf("invalid package file size")
 			}
-			b, err := os.ReadFile(filepath.Join(s.skillDir, r.Skill, filepath.FromSlash(f.Path)))
+			b, err := readSkillRunPackageFile(filepath.Join(s.skillDir, r.Skill, filepath.FromSlash(f.Path)))
 			if err != nil || int64(len(b)) != f.Bytes {
 				return fmt.Errorf("installed package file unavailable or changed")
 			}

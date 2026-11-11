@@ -50,15 +50,25 @@ def input_identity(path):
         raise ValueError("input must be an existing file or directory")
     digest = hashlib.sha256()
     total = 0
-    count = 0
-    for item in sorted(path.rglob("*")):
-        if item.is_symlink():
-            continue
-        if not item.is_file():
-            continue
-        count += 1
-        if count > 10000:
-            raise ValueError("input exceeds 10000 files")
+    entries = 0
+    pending = [path]
+    files = []
+    while pending:
+        directory = pending.pop()
+        with os.scandir(directory) as children:
+            for child in children:
+                entries += 1
+                if entries > 50000:
+                    raise ValueError("input exceeds 50000 directory entries")
+                if child.is_symlink():
+                    continue
+                if child.is_dir(follow_symlinks=False):
+                    pending.append(Path(child.path))
+                elif child.is_file(follow_symlinks=False):
+                    files.append(Path(child.path))
+                    if len(files) > 10000:
+                        raise ValueError("input exceeds 10000 files")
+    for item in sorted(files):
         size, item_digest = sha_file(item, INPUT_LIMIT - total)
         total += size
         row = [item.relative_to(path).as_posix(), size, item_digest]
@@ -70,9 +80,11 @@ def package_identity(root, name):
     # The runner's distributed manifest is the trust source. An alternative
     # content directory cannot replace its own expected hashes.
     manifest = Path(__file__).resolve().parents[2] / "skills/content-manifest.json"
-    if manifest.stat().st_size > 1024 * 1024:
+    with manifest.open("rb") as stream:
+        raw = stream.read(1024 * 1024 + 1)
+    if len(raw) > 1024 * 1024:
         raise ValueError("manifest exceeds size limit")
-    data = json.loads(manifest.read_text(encoding="utf-8-sig"))
+    data = json.loads(raw.decode("utf-8-sig"))
     packages = [item for item in data["packages"] if item["name"] == name]
     if len(packages) != 1:
         raise ValueError("workflow is absent or duplicated in content manifest")
