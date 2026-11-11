@@ -82,5 +82,9 @@ responses, regex and header value extraction, connection failure,
 pending findings, immutable history, restricted history-list evidence,
 authentication, incompatible YAML, corrupt source/license checksums, failed
 updates preserving the catalog, startup preserving local edits, and unavailable
-engine states. Linux
-container execution remains part of deployment acceptance.
+engine states. At source revision `8c41006`, Linux container execution passed
+eight top-level authenticated HTTP/PostgreSQL tests, five syntax/bundle tests,
+and an actual offline import of all eleven official templates. Targets were
+local HTTP services inside the isolated test container. Evidence is in
+`docs/screenshot-parity-linux-validation.md`. The complete application image
+and upgrade acceptance remain separate.

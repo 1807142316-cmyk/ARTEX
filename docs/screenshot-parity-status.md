@@ -1,6 +1,6 @@
 # 截图功能对齐实施状态
 
-实施分支：`codex/screenshot-parity-integration`。最终产品及修复基线为 `bcaee3b`，后续交付记录提交继续保留在同一分支。父 issue #1 尚未全部完成；#2、#3、#4、#5、#11 已完成，其余保持开启。最新 Linux 数据验收见[实际运行记录](screenshot-parity-linux-validation.md)。
+实施分支：`codex/screenshot-parity-integration`。本轮功能集成基线为 `8c41006`，后续审查修复继续保留在同一分支。父 issue #1 尚未全部完成；#2、#3、#4、#5、#6、#11 已完成，#7–#10 保持开启。最新 Linux 数据及内容验收见[实际运行记录](screenshot-parity-linux-validation.md)。
 
 ## Ticket 覆盖
 
@@ -10,11 +10,11 @@
 | #3 发现 | 严重性、检索、分页、展开及保留原详情操作；真实 HTTP/PostgreSQL 验证 | 原始截图无法从当前上下文重新取图做像素对照 |
 | #4 知识库 | 导入/去重/版本/审核/验证/发布/撤销、逻辑调用去重、`kb_search`/`kb_get`、六条实质草稿；候选来源分页、正文搜索开关、来源证据预览及解绑后 GC 保留；真实 HTTP/PostgreSQL 与浏览器闭环 | 已关闭；Linux 整体验收由父 spec 跟踪 |
 | #5 CVE | 官方全量421,793条在独立 Linux Compose PostgreSQL 实际导入；原库及恢复库认证 HTTP 检索、统计、原始记录、离线查询、备份恢复和重启检查通过 | Ticket 数据验收完成；整套应用镜像部署和升级仍由父 spec 跟踪 |
-| #6 模板 | 固定 Nuclei 3.4.10 实际执行静态 GET/状态码检查；三条真实模板、异步运行、版本快照、分页历史、请求响应与待审发现；任务停止取消、输出上限与任务代理接线；真实引擎及浏览器验证 | 完整社区格式与模板语料未交付；Linux 未运行，保持开启 |
-| #7 技能 | 分类持久化、元数据及绑定保护；七个新 Python 标准库工作流，真实 Agent 加载、调用账本、输入输出/失败测试及内容清单；Linux Python 的9项命令测试和7包哈希核验通过；原三个基础技能保留 | 未覆盖截图全部类别，保持开启 |
-| #8 代理池 | HTTP/HTTPS/SOCKS5 配置、健康检查、加密凭据、独占任务租约、显式回退、故障暂停及审计；代理网关、录制开关路径、原生 HTTP/HTTP enrichment 及模板接线；旧连接取消与监控修复；页面添加/检查/启用/分配已验收 | Agent 浏览器实际出口及 Linux 运行未验收；原始 TCP/UDP、DNS及忽略代理设置的程序不受透明强制，完整目标流量策略尚不满足，保持开启 |
-| #9 C2/WebShell | 无新增实现 | 真实会话后端及 HTTP/PHP 操作未交付，保持开启；本次未提供远程任意命令执行功能 |
-| #10 内网拓扑 | 无新增实现 | 依赖真实会话集成、关系变化及 worker 内网变体未交付，保持开启 |
+| #6 模板 | 固定 Nuclei 3.4.10；11 条官方 MIT 原文模板及 3 条原创检查；status/word/regex、正文/头匹配及提取；原子离线导入、历史快照、候选证据、取消和任务代理；Linux 8 项 HTTP/实际引擎与 5 项语法/包测试通过 | 已关闭；兼容范围见 SCANNING.md，完整社区格式及父 spec 整体内容对齐不能据此判定完成 |
+| #7 技能 | 14 个新增 Python 标准库工作流，保留原 3 包；分类/目录/导入/编辑及绑定保护；Linux 17 项 CLI、14 包哈希和实际 Agent 加载/计数通过 | 截图分类覆盖及实际工作流输入/输出/退出结果的精确关联仍有缺口，保持开启 |
+| #8 代理池 | 原有池/租约/健康/故障/审计与任务 HTTP/录制/模板接线；新增 Windows 实际 Agent MCP/Chromium 双任务不同出口验收，Linux 6 项网关 HTTP/PostgreSQL 回归通过 | Linux Chromium 尚未验收；原始 TCP/UDP、DNS及忽略代理设置的程序不受透明强制，完整目标流量策略尚不满足，保持开启 |
+| #9 C2/WebShell | 新增认证的外部会话观察登记、心跳/过期/断开、任务资产关联、审计、页面及实际 HTTP 健康观察 CLI；5 项真实 HTTP/PostgreSQL 测试通过 | 观察模块不等于 C2/WebShell 控制适配器；真实 HTTP/PHP 协议操作未交付，交互式浏览器验收未运行，保持开启 |
+| #10 内网拓扑 | 新增显式主机/网段/会话/隧道元数据/凭据引用关系、失效传播、任务筛选及审计；不按同网段推断边 | 依赖的真实控制会话适配器及 worker 内网上下文未交付，保持开启 |
 | #11 CVE更新 | 默认定时同步、立即更新/开关、持久化状态/游标、互斥、恢复、遗漏窗口协调、缓存校验/保留策略；真实 HTTP/PostgreSQL 测试覆盖 | Linux整体验收仍由父 spec 跟踪 |
 
 ## 实际运行证据
@@ -22,10 +22,11 @@
 - Windows 主机上启动独立 PostgreSQL 17，新增功能 HTTP 集成测试实际执行；没有将跳过的测试记作成功。
 - 最终 `bcaee3b` 在全新 PostgreSQL `parity_final_release` 运行 28 项顶层 HTTP 测试、2 项暂停/删除子测试，共 30 项通过、0 跳过、0 失败，覆盖幂等任务、发现、知识生命周期/候选、技能实际加载及统计、CVE导入/同步/并发一致状态、指标认证、代理并行租约/故障/录制/SOCKS5/CONNECT取消及真实模板执行/任务停止/任务代理。原始 JSON 事件日志保存在本机 `%TEMP%/artex-final-release-server-tests.jsonl`。
 - 全仓库 Go 编译检查、CVE/模板单元测试、前端 TypeScript、Next.js 生产静态构建通过。
-- 九项 Python 技能命令测试和七个原创包的 SHA-256 清单核对通过。原三个技能内容与绑定未覆盖改写。
+- `6c4aa76` 集成后新增及相关功能的 25 项顶层 HTTP 测试通过，0 失败、0 跳过，包含实际 Chromium/Nuclei、14 包 Agent 加载、会话观察、高位 task ID 和迁移中断；Windows Python 显式指定实际安装路径。JSON 事件日志位于本机 `%TEMP%/artex-parity-content2/integrated-http-tests-final.jsonl`。该定向回归不替代下文注明的全量旧测试环境问题。
+- Linux 17 项 Python 技能命令测试、14 个原创包哈希以及实际 Agent 加载/计数通过。原三个技能内容与绑定未覆盖改写。
 - 公共 norma Bash/curl 实测池模式清空继承的 `NO_PROXY` 后经过代理，旧模式继续保留原绕过行为。真实子进程分别输出 13 MiB stdout、stderr 和错误文件，三种有界处理均通过。
 - 浏览器实际验证快速开始与阶段切换、知识检索/正文匹配开关/来源证据预览/候选整理/来源历史、完整 CVE 语料检索/原始记录展开/自动开关，以及真实 Nuclei 执行/完成记录/请求响应预览/待审发现标记。
-- 代理管理页面已用本地受控 HTTP 代理实际验证添加、健康检查、观测 IP、启用、任务租约分配及审计显示。该检查不代表 Agent 的 Chromium 导航出口已通过。
+- 代理管理页面已实际验证添加/检查/观测 IP/分配。后续 Windows 实际 Agent MCP/Chromium 导航也验证双任务不同出口及继承 NO_PROXY 的处理；Linux 的 6 项网关测试通过，Linux Chromium 尚未运行。
 - 官方 `cve_2026-11-10_1900Z` 基线导入421,793条：402,649条 PUBLISHED、19,144条 REJECTED。ZIP SHA-256与来源见 `content-manifests/cve-baseline.json`。
 - `pg_dump` 完整导出并恢复至独立库，重新启动新版本应用后经认证HTTP确认统计仍为421,793，且可检索 `CVE-2021-44228`。
 - 本地内容在 `content/cve/`，包括官方ZIP、manifest及数据库备份；大文件排除Git。跟踪的manifest足以重新下载并核验原始ZIP。
@@ -34,10 +35,12 @@
 
 ## 双轴审查
 
+本轮 `66ba72c...8c41006` 再次进行两轴独立审查，修复于 `6c4aa76`：Standards 的类型化拓扑节点建议消除了 bigint 经 float64 舍入；Spec 的两项问题分别修复了密钥迁移中断后旧副本清理，以及详情心跳/断开状态未随轮询刷新。独立 PostgreSQL 的 8 项顶层回归及 5 个启动子场景通过，TypeScript/Biome 通过。Linux 内容证据对应 `8c41006`，未将后续修复冒充已在 Linux 重跑。
+
 Standards：未发现明确仓库规则硬性违反；已修复测试初始化错误被跳过、缓存无限积累、YAML锚点丢失及候选证据保留问题。后续修复模板输出上限被继承方法绕过、代理租约变化后旧连接存活及切换请求取消误暂停任务；实际子进程与公开 HTTP 回归通过。
 
 Spec：已修复缺增量包时游标提前推进、坏缓存阻止重试、CVE技能丢失受影响条件、同步状态快照竞态，并补齐候选来源闭环。后续修复关联任务停止后模板仍执行、代理监控总超时误暂停其他任务；复核未发现新的可操作问题。上表列明的范围缺口仍存在，父 issue 必须保持开启。
 
 ## Linux 交付边界
 
-新增 `Dockerfile.source` 和 `compose.source.yml` 从本分支源码构建，步骤见根目录 `DEPLOYMENT.md`。本地 Windows 主机仍无可用 Linux 容器环境；用户随后提供的 Ubuntu 服务器已用于独立数据验收，见[Linux记录](screenshot-parity-linux-validation.md)。CVE全量、认证HTTP、Linux数据库备份恢复及7个原创技能命令已实际运行。整套应用镜像冷启动/升级、Linux指标和Agent浏览器出口仍未验收。现有Compose未持久挂载JWT/config，重建应用前必须按部署文档保存；整套平台发布不能仅凭数据验收判定通过。
+新增 `Dockerfile.source` 和 `compose.source.yml` 从本分支源码构建，步骤见根目录 `DEPLOYMENT.md`。Ubuntu 服务器已用于独立 CVE、模板、技能、代理及密钥回归，见[Linux记录](screenshot-parity-linux-validation.md)。整套应用镜像冷启动/升级、Linux指标和 Linux Chromium 出口仍未验收。源码 Compose override 已新增私有 JWT/config 持久卷；首次升级旧容器必须先按文档保存并恢复原密钥。整套平台部署曾被自动审批拒绝（`blocked by policy`），未替换服务器原 ARTEX；数据及受限工作流验收不能代表平台发布完成。

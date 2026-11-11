@@ -131,7 +131,8 @@ search succeeded. The local backup is `content/cve/corpus.pgcustom`.
 This Windows workspace has no Docker daemon or configured WSL distribution.
 Subsequent validation on the user-supplied Ubuntu host passed CVE full import,
 offline queries, authenticated handlers against Compose PostgreSQL, database
-backup/restore/restart, and the seven authored workflows. Evidence is in
+backup/restore/restart, seventeen workflow CLI tests, fourteen Agent package
+loads, actual template execution/import and six proxy gateway tests. Evidence is in
 `docs/screenshot-parity-linux-validation.md`. Whole-application Compose cold
 start, upgrades, Chromium and Linux metric comparison remain unverified.
 

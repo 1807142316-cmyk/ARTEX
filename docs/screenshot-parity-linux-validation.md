@@ -102,6 +102,63 @@ The pre-existing ARTEX service remained active and its health endpoint returned
 
 This round validates CVE storage/query/update behavior and the seven authored
 workflows. It does not certify the complete ARTEX source image, Chromium/Agent
-egress, metrics, platform upgrades, C2/WebShell or intranet features. The current
-Compose JWT/config persistence gap is described in `DEPLOYMENT.md` and remains
-relevant to whole-application recreation and upgrades.
+egress, metrics, platform upgrades, C2/WebShell or intranet features. The original
+Compose JWT/config persistence gap was subsequently addressed in the source
+override, with the regression evidence below. Whole-application container
+recreation and upgrades still require their own acceptance.
+
+## Additional content and gateway acceptance (source `8c41006`)
+
+The same isolated validation project was used for these checks. It created
+separate `templates_http_acceptance` and `workflows_acceptance` databases and
+retained the existing CVE databases. No test port was published. The test image
+was the already installed PostgreSQL Alpine image, with cross-compiled test
+executables and explicitly selected local HTTP tests. This was not an application
+deployment or upgrade.
+
+- All 17 Python command tests passed on host Python 3.10.12; all 14 authored
+  package hashes matched. The content archive SHA-256 is
+  `ab32ed4ccfa359244d19821dc957341f6b982c86254398b1d6b8b1cd5136ac83`.
+- Five top-level template syntax/bundle tests and eight authenticated HTTP tests
+  passed with no skips. The actual Nuclei 3.4.10 engine checked local nginx,
+  Apache, Angular and default-page responses; negative matches, extraction,
+  immutable history, cancellation, proxy routing and failure behavior passed.
+- Official Linux Nuclei archive SHA-256 matched
+  `234c12cc5288af071abdcd6f854245b6067345556e1235cf96b76725c1004357`;
+  the extracted executable hash was
+  `794b5033f3e7b40b23bcf8a4e1c886d16275e0be2aaa19f0d8716a7bcb9e1489`.
+  The test artifact archive hash was
+  `9345926a9e5f78b5c9d52c996c5cdd28ce18b86c223df69a1d8d27afb72e231d`.
+- The actual offline importer completed with `imported=11` and upstream commit
+  `13f9bc679405927b7f78eb5dfd3e7260ed3d40f3`. The default catalog also retains
+  three authored checks. This does not assert support for all community formats.
+- Nine additional top-level tests passed: fourteen packages loaded through the
+  actual Agent tool with resolved script paths and call counts; signing-key
+  migration/recreation retained an existing token and authenticated proxy;
+  invalid keys/browsable key paths rejected startup; and six proxy gateway tests
+  covered concurrent exits, recording parity, failure pause/fallback, redaction,
+  SOCKS5 and established-tunnel cancellation. No test skipped.
+
+The extra evidence archive `content2-evidence.tar.gz` is 4,627 bytes with SHA-256
+`6733b67bd75518535903af292554fe9e688fd96c7b9fdb352288c2394bc001f8`.
+It contains test logs and hashes, excludes credentials, and was downloaded and
+verified locally. After completion all validation containers were stopped;
+volumes and evidence remain. The original `artex` service was active and its
+health endpoint reported `ok: true`.
+
+Windows acceptance at the same revision also passed actual Agent-assembled
+Playwright MCP/Chromium navigations for two distinct task proxy exits. Linux
+Chromium has not been run. The combined Windows suite initially had one failure
+because the Windows `python3` app alias returned 9009; explicitly selecting the
+installed Python 3.11 executable made that observer CLI test pass. The other
+23 top-level tests had passed. TypeScript and the 36-page static production
+build passed. The newly added session page has HTTP and build coverage;
+interactive browser acceptance was rejected by automatic approval review before
+startup, with reason `blocked by policy`, and remains unrun.
+
+Subsequent review fixes at `6c4aa76` retain bigint task IDs without a float64
+conversion, finish cleanup after an interrupted key migration, reject conflicting
+legacy keys, and refresh open session details with polling. Eight focused HTTP
+tests and five startup subcases passed against independent Windows PostgreSQL;
+TypeScript and Biome passed. These fixes are later than the Linux artifacts
+above and are not represented as part of their Linux evidence.
