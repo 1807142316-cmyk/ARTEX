@@ -28,11 +28,13 @@ import (
 var connectionCapabilities = []string{"ping", "info", "exec"}
 
 const (
-	connectionKeyHeader   = "X-Shell-Key"
-	connectionKeyHeaderV1 = "X-Artex-Key"
-	connectionOutputCap   = 64 << 10
-	connectionDefaultTTL  = 120
-	connectionMinSecret   = 32
+	// connectionKeyHeader carries the adapter credential. It is the only auth
+	// header sent: the PHP fixture (and its Go stub) read X-Shell-Key directly,
+	// so a second "compatibility" header would be scope with no test behind it.
+	connectionKeyHeader  = "X-Shell-Key"
+	connectionOutputCap  = 64 << 10
+	connectionDefaultTTL = 120
+	connectionMinSecret  = 32
 
 	// connectionExchangeDeadline bounds one request to an adapter. It matches the
 	// accepted/CHECKed timeout_seconds range (1-120) so the configured value is
@@ -41,6 +43,11 @@ const (
 	// connectionOperationTimeoutCap bounds one *operation's* requested
 	// timeout_ms, independently of the adapter's own budget.
 	connectionOperationTimeoutCap = 30 * time.Second
+
+	// connectionPageLimit caps page/limit on the two paginated list endpoints.
+	connectionPageLimit = 100
+	// connectionAdapterPageLimit bounds the unpaginated adapter list.
+	connectionAdapterPageLimit = 200
 )
 
 // connectionExchangeTimeout is the single source of truth for how long one
@@ -213,6 +220,15 @@ func (s *Server) listConnectionAdapters(w http.ResponseWriter, r *http.Request) 
 		writeErr(w, 500, "list adapters failed")
 		return
 	}
+	// Adapters are returned in full unless there are more than the bound; a much
+	// larger installation gets the first 200 and an explicit truncation flag
+	// rather than an unbounded response.
+	total := len(items)
+	truncated := false
+	if len(items) > connectionAdapterPageLimit {
+		items = items[:connectionAdapterPageLimit]
+		truncated = true
+	}
 	for _, a := range items {
 		_, _ = s.adapterSession(r.Context(), a)
 	}
@@ -220,7 +236,14 @@ func (s *Server) listConnectionAdapters(w http.ResponseWriter, r *http.Request) 
 	for _, a := range items {
 		views = append(views, adapterView(a))
 	}
-	writeJSON(w, 200, map[string]any{"items": views, "capabilities": connectionCapabilities, "kinds": []string{"http_phpcmd"}})
+	writeJSON(w, 200, map[string]any{
+		"items":        views,
+		"total":        total,
+		"limit":        connectionAdapterPageLimit,
+		"truncated":    truncated,
+		"capabilities": connectionCapabilities,
+		"kinds":        []string{"http_phpcmd"},
+	})
 }
 
 func (s *Server) getConnectionAdapter(w http.ResponseWriter, r *http.Request) {
@@ -453,7 +476,6 @@ func (c *shellClient) exchange(ctx context.Context, request shellRequest) (shell
 	}
 	req.Header.Set("Content-Type", "application/json")
 	req.Header.Set(connectionKeyHeader, c.secret)
-	req.Header.Set(connectionKeyHeaderV1, c.secret)
 	client := &http.Client{Timeout: c.timeout, CheckRedirect: func(*http.Request, []*http.Request) error { return http.ErrUseLastResponse }}
 	resp, err := client.Do(req)
 	if err != nil {
@@ -752,7 +774,10 @@ func connectionSessionView(session db.InventorySession, a *db.ConnectionAdapter)
 }
 
 func (s *Server) listConnectionSessions(w http.ResponseWriter, r *http.Request) {
-	items, err := s.m.pg.ConnectionSessions(r.Context(), strings.TrimSpace(r.URL.Query().Get("q")))
+	q := r.URL.Query()
+	page := findingPaginationParam(q.Get("page"), 1, 1000000)
+	limit := findingPaginationParam(q.Get("limit"), 20, connectionPageLimit)
+	items, total, err := s.m.pg.ConnectionSessions(r.Context(), strings.TrimSpace(q.Get("q")), page, limit)
 	if err != nil {
 		writeErr(w, 500, "list sessions failed")
 		return
@@ -775,7 +800,15 @@ func (s *Server) listConnectionSessions(w http.ResponseWriter, r *http.Request) 
 		}
 		out = append(out, connectionSessionView(item, adapter))
 	}
-	writeJSON(w, 200, map[string]any{"items": out, "capabilities": connectionCapabilities, "mode": "adapter"})
+	writeJSON(w, 200, map[string]any{
+		"items":        out,
+		"page":         page,
+		"limit":        limit,
+		"total":        total,
+		"truncated":    page*limit < total,
+		"capabilities": connectionCapabilities,
+		"mode":         "adapter",
+	})
 }
 
 func connectionAdapterIDFromSource(source string) int64 {
@@ -826,34 +859,45 @@ func (s *Server) listConnectionOperations(w http.ResponseWriter, r *http.Request
 	if !ok {
 		return
 	}
-	ops, err := s.m.pg.ConnectionOperations(r.Context(), item.ID, 100)
+	q := r.URL.Query()
+	page := findingPaginationParam(q.Get("page"), 1, 1000000)
+	limit := findingPaginationParam(q.Get("limit"), 20, connectionPageLimit)
+	ops, total, err := s.m.pg.ConnectionOperations(r.Context(), item.ID, page, limit)
 	if err != nil {
 		writeErr(w, 500, "list operations failed")
 		return
 	}
-	writeJSON(w, 200, map[string]any{"items": ops, "session": connectionSessionView(*item, adapter), "capabilities": connectionCapabilities})
+	writeJSON(w, 200, map[string]any{
+		"items":        ops,
+		"page":         page,
+		"limit":        limit,
+		"total":        total,
+		"truncated":    page*limit < total,
+		"session":      connectionSessionView(*item, adapter),
+		"capabilities": connectionCapabilities,
+	})
 }
 
+// connectionOperationInput is the operation request body. The session in the
+// path already determines the adapter, so there is deliberately no adapter_id
+// field: an extra identifier could only disagree with the URL.
 type connectionOperationInput struct {
 	Action    string   `json:"action"`
 	Cmd       string   `json:"cmd"`
 	Argv      []string `json:"argv"`
 	TimeoutMS int      `json:"timeout_ms"`
 	RequestID string   `json:"request_id"`
-	AdapterID *int64   `json:"adapter_id"`
 }
 
 func (s *Server) runConnectionOperation(w http.ResponseWriter, r *http.Request) {
-	item, adapter, ok := s.connectionSessionFor(w, r)
+	// The session in the path determines the adapter; the lookup still validates
+	// that the session is adapter-owned and its adapter exists.
+	item, _, ok := s.connectionSessionFor(w, r)
 	if !ok {
 		return
 	}
 	var input connectionOperationInput
 	if !connectionBody(w, r, &input) {
-		return
-	}
-	if input.AdapterID != nil && *input.AdapterID != adapter.ID {
-		writeErr(w, 409, "session belongs to a different adapter")
 		return
 	}
 	record, replayed, err := s.executeConnectionOperation(r.Context(), item.ID, connectionOpRequest{

@@ -4,7 +4,6 @@ import (
 	"context"
 	"database/sql"
 	"errors"
-	"strings"
 	"time"
 )
 
@@ -159,34 +158,61 @@ func (d *DB) NextInventorySequence(ctx context.Context, source, sourceID string)
 	return sequence + 1, nil
 }
 
-// ConnectionSessions lists the inventory sessions owned by adapter sync. The
-// existing observer rows are untouched: the source prefix is what distinguishes
-// an adapter-backed session.
-func (d *DB) ConnectionSessions(ctx context.Context, q string) ([]InventorySession, error) {
+// ConnectionSessions lists one page of inventory sessions owned by adapter sync,
+// plus the total number of rows matching the filter. The existing observer rows
+// are untouched: the source prefix is what distinguishes an adapter-backed
+// session. Columns are listed explicitly in the derived table rather than
+// SELECT *, so adding a column to session_inventory cannot silently shift the
+// scan order.
+func (d *DB) ConnectionSessions(ctx context.Context, q string, page, limit int) ([]InventorySession, int, error) {
+	if limit < 1 || limit > 100 {
+		limit = 20
+	}
+	if page < 1 {
+		page = 1
+	}
+	if page > 1000000 {
+		page = 1000000
+	}
 	pattern := likePattern(q)
-	rows, err := d.QueryContext(ctx, `SELECT `+inventoryColumns+` FROM (SELECT *,CASE WHEN state='connected' AND heartbeat_at+heartbeat_ttl_seconds*interval '1 second'<now() THEN 'stale' ELSE state END AS effective_state FROM session_inventory WHERE source LIKE 'connection:%') inventory WHERE ($1='' OR source ILIKE $1 OR host ILIKE $1 OR url ILIKE $1) ORDER BY updated_at DESC,id DESC LIMIT 200`, pattern)
+	const where = ` WHERE ($1='' OR inventory.source ILIKE $1 OR inventory.host ILIKE $1 OR inventory.url ILIKE $1)`
+	total := 0
+	if err := d.QueryRowContext(ctx, `SELECT count(*) FROM (SELECT `+inventoryEffectiveColumns+` FROM session_inventory) inventory`+where, pattern).Scan(&total); err != nil {
+		return nil, 0, err
+	}
+	rows, err := d.QueryContext(ctx, `SELECT `+inventoryColumns+` FROM (SELECT `+inventoryEffectiveColumns+` FROM session_inventory WHERE source LIKE 'connection:%') inventory`+where+` ORDER BY updated_at DESC,id DESC LIMIT $2 OFFSET $3`, pattern, limit, (page-1)*limit)
 	if err != nil {
-		return nil, err
+		return nil, 0, err
 	}
 	defer rows.Close()
 	out := []InventorySession{}
 	for rows.Next() {
 		s, e := scanInventory(rows)
 		if e != nil {
-			return nil, e
+			return nil, 0, e
 		}
 		s.Mode = "adapter"
 		out = append(out, s)
 	}
-	return out, rows.Err()
+	return out, total, rows.Err()
 }
 
 // StartConnectionOperation records the request before it leaves the process.
 // A repeated request_id returns the existing row and replayed=true so the
 // handler cannot send the same command twice.
-func (d *DB) StartConnectionOperation(ctx context.Context, adapterID, sessionID int64, requestID, action, argsSummary string) (ConnectionOperation, bool, error) {
+// connectionOperationColumns and scanConnectionOperation are the single place an
+// operation row's shape is declared, so every statement returns the same fields
+// in the same order.
+const connectionOperationColumns = `id,adapter_id,session_id,request_id,action,args_summary,status,exit_code,output,error,started_at,finished_at`
+
+func scanConnectionOperation(row interface{ Scan(...any) error }) (ConnectionOperation, error) {
 	var op ConnectionOperation
-	err := d.QueryRowContext(ctx, `INSERT INTO connection_operations(adapter_id,session_id,request_id,action,args_summary,status) VALUES($1,$2,$3,$4,$5,'running') ON CONFLICT(session_id,request_id) DO NOTHING RETURNING id,adapter_id,session_id,request_id,action,args_summary,status,exit_code,output,error,started_at,finished_at`, adapterID, sessionID, requestID, action, argsSummary).Scan(&op.ID, &op.AdapterID, &op.SessionID, &op.RequestID, &op.Action, &op.ArgsSummary, &op.Status, &op.ExitCode, &op.Output, &op.Error, &op.StartedAt, &op.FinishedAt)
+	err := row.Scan(&op.ID, &op.AdapterID, &op.SessionID, &op.RequestID, &op.Action, &op.ArgsSummary, &op.Status, &op.ExitCode, &op.Output, &op.Error, &op.StartedAt, &op.FinishedAt)
+	return op, err
+}
+
+func (d *DB) StartConnectionOperation(ctx context.Context, adapterID, sessionID int64, requestID, action, argsSummary string) (ConnectionOperation, bool, error) {
+	op, err := scanConnectionOperation(d.QueryRowContext(ctx, `INSERT INTO connection_operations(adapter_id,session_id,request_id,action,args_summary,status) VALUES($1,$2,$3,$4,$5,'running') ON CONFLICT(session_id,request_id) DO NOTHING RETURNING `+connectionOperationColumns, adapterID, sessionID, requestID, action, argsSummary))
 	if errors.Is(err, sql.ErrNoRows) {
 		existing, e := d.connectionOperation(ctx, sessionID, requestID)
 		return existing, true, e
@@ -195,40 +221,43 @@ func (d *DB) StartConnectionOperation(ctx context.Context, adapterID, sessionID 
 }
 
 func (d *DB) connectionOperation(ctx context.Context, sessionID int64, requestID string) (ConnectionOperation, error) {
-	var op ConnectionOperation
-	err := d.QueryRowContext(ctx, `SELECT id,adapter_id,session_id,request_id,action,args_summary,status,exit_code,output,error,started_at,finished_at FROM connection_operations WHERE session_id=$1 AND request_id=$2`, sessionID, requestID).Scan(&op.ID, &op.AdapterID, &op.SessionID, &op.RequestID, &op.Action, &op.ArgsSummary, &op.Status, &op.ExitCode, &op.Output, &op.Error, &op.StartedAt, &op.FinishedAt)
-	return op, err
+	return scanConnectionOperation(d.QueryRowContext(ctx, `SELECT `+connectionOperationColumns+` FROM connection_operations WHERE session_id=$1 AND request_id=$2`, sessionID, requestID))
 }
 
 func (d *DB) FinishConnectionOperation(ctx context.Context, id int64, status string, exitCode *int, output, errMsg string) (ConnectionOperation, error) {
-	var op ConnectionOperation
-	err := d.QueryRowContext(ctx, `UPDATE connection_operations SET status=$2,exit_code=$3,output=$4,error=$5,finished_at=now() WHERE id=$1 RETURNING id,adapter_id,session_id,request_id,action,args_summary,status,exit_code,output,error,started_at,finished_at`, id, status, exitCode, output, errMsg).Scan(&op.ID, &op.AdapterID, &op.SessionID, &op.RequestID, &op.Action, &op.ArgsSummary, &op.Status, &op.ExitCode, &op.Output, &op.Error, &op.StartedAt, &op.FinishedAt)
-	return op, err
+	return scanConnectionOperation(d.QueryRowContext(ctx, `UPDATE connection_operations SET status=$2,exit_code=$3,output=$4,error=$5,finished_at=now() WHERE id=$1 RETURNING `+connectionOperationColumns, id, status, exitCode, output, errMsg))
 }
 
-func (d *DB) ConnectionOperations(ctx context.Context, sessionID int64, limit int) ([]ConnectionOperation, error) {
-	if limit < 1 || limit > 200 {
-		limit = 50
+// ConnectionOperations returns one page of a session's operation history plus
+// the total number of recorded operations.
+func (d *DB) ConnectionOperations(ctx context.Context, sessionID int64, page, limit int) ([]ConnectionOperation, int, error) {
+	if limit < 1 || limit > 100 {
+		limit = 20
 	}
-	rows, err := d.QueryContext(ctx, `SELECT id,adapter_id,session_id,request_id,action,args_summary,status,exit_code,output,error,started_at,finished_at FROM connection_operations WHERE session_id=$1 ORDER BY id DESC LIMIT $2`, sessionID, limit)
+	if page < 1 {
+		page = 1
+	}
+	if page > 1000000 {
+		page = 1000000
+	}
+	total := 0
+	if err := d.QueryRowContext(ctx, `SELECT count(*) FROM connection_operations WHERE session_id=$1`, sessionID).Scan(&total); err != nil {
+		return nil, 0, err
+	}
+	rows, err := d.QueryContext(ctx, `SELECT `+connectionOperationColumns+` FROM connection_operations WHERE session_id=$1 ORDER BY id DESC LIMIT $2 OFFSET $3`, sessionID, limit, (page-1)*limit)
 	if err != nil {
-		return nil, err
+		return nil, 0, err
 	}
 	defer rows.Close()
 	out := []ConnectionOperation{}
 	for rows.Next() {
-		var op ConnectionOperation
-		if err := rows.Scan(&op.ID, &op.AdapterID, &op.SessionID, &op.RequestID, &op.Action, &op.ArgsSummary, &op.Status, &op.ExitCode, &op.Output, &op.Error, &op.StartedAt, &op.FinishedAt); err != nil {
-			return nil, err
+		op, scanErr := scanConnectionOperation(rows)
+		if scanErr != nil {
+			return nil, 0, scanErr
 		}
 		out = append(out, op)
 	}
-	return out, rows.Err()
-}
-
-// likePattern escapes SQL LIKE metacharacters for a substring match.
-func likePattern(q string) string {
-	return "%" + strings.NewReplacer("\\", "\\\\", "%", "\\%", "_", "\\_").Replace(q) + "%"
+	return out, total, rows.Err()
 }
 
 // ConnectionSessionBySource resolves the adapter-owned inventory row. It reads

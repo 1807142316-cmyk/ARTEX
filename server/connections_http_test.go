@@ -734,9 +734,11 @@ func TestConnectionSyncUsesTheExistingInventoryObservation(t *testing.T) {
 	otherName := fmt.Sprintf("other-%d", time.Now().UnixNano())
 	other := e.createAdapter(t, map[string]any{"name": otherName, "kind": "http_phpcmd", "base_url": stub.url(), "secret": secret, "secret_ref": "other-key", "timeout_seconds": 5})
 	_ = other
-	code, denied := e.call(t, "POST", fmt.Sprintf("/api/connections/sessions/%d/operations", sessionID), map[string]any{"action": "exec", "cmd": "id", "adapter_id": int64(adapterID) + 1, "request_id": "mismatch"}, true)
-	if code == 200 {
-		t.Fatalf("adapter mismatch accepted: %v", denied)
+	// The request body takes no adapter identifier: the session in the path is the
+	// only authority, so an unknown field is refused outright instead of being
+	// silently ignored.
+	if code, body := e.call(t, "POST", fmt.Sprintf("/api/connections/sessions/%d/operations", sessionID), map[string]any{"action": "exec", "cmd": "id", "adapter_id": int64(adapterID) + 1, "request_id": "mismatch"}, true); code != 400 {
+		t.Fatalf("adapter_id in body accepted (%d): %v", code, body)
 	}
 	// A session that no adapter owns is refused explicitly.
 	code, manual := e.call(t, "POST", "/api/session-inventory/observations", map[string]any{"source": fmt.Sprintf("observer-manual-%d", time.Now().UnixNano()), "source_id": "manual", "sequence": 1, "kind": "c2", "state": "connected", "host": "manual.internal", "url": "http://manual.internal/status", "heartbeat_ttl_seconds": 60}, true)
